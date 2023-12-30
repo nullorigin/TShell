@@ -1,7 +1,7 @@
 #ifndef MAIN_CPP
 #define MAIN_CPP
 #include "main.hpp"
-#include "include/rc.hpp"
+#include "include/app.hpp"
 #include <chrono>
 namespace origin {
 auto main(int argc, char **argv) -> int {

@@ -1,6 +1,6 @@
 #ifndef RC_HPP
 #define RC_HPP
-#include "con.hpp"
+#include "console.hpp"
 #include "timer.hpp"
 #include "util.hpp"
 #include <chrono>
@@ -8,22 +8,13 @@
 #include <conio.h>
 #include <cstdlib>
 #include <iostream>
-#include <qflags.h>
-#include <qnamespace.h>
-#include <qobject.h>
-#include <QMainWindow>
-#include <QtWidgets>
-#include <qapplication.h>
-#include <qmainwindow.h>
-#include <qtwidgetsglobal.h>
-#include <qwidget.h>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
 #include <thread>
+#include <mutex>
 namespace origin {
 using namespace std;
-using namespace Qt;
 class App {
 private:
   int *p{nullptr};
@@ -98,22 +89,11 @@ switch. Uses the constants above as specifiers for the equivalent index. */
     delete Con;
     delete Mutex;
     delete p;
-    delete Application;
   }
 
 public:
-  QApplication *Application{};
-  QMainWindow MainWindow = QMainWindow();
-  App(const App &) = delete;
-  App(App &&) = delete;
-  App &operator=(const App &) = delete;
-  App &operator=(App &&) = delete;
   App(int argc, char *argv[]) {
     NewVar();
-    Application = new QApplication(argc, argv);
-    Application->setApplicationName("TShell");
-    MainWindow.setWindowTitle("TShell");
-    MainWindow.setBaseSize(QSize(800, 600));
     *Con = Console();
     *p = 0;
     SetState(Uninitialized);
@@ -394,8 +374,6 @@ private:
     return -1;
   }
   auto ProcessOutput() -> int {
-    MainWindow.show();
-    Application->exec();
     nanoseconds TimeMax;
     nanoseconds TimeEnd;
     while (true) {
