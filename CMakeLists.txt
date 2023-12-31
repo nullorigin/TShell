@@ -3,7 +3,7 @@ project(TShell)
 set(CMAKE_CXX_STANDARD 14)
 
 # Add main.cpp file of the project root directory as a source file
-set(SOURCE_FILES main.cpp)
+set(SOURCE_DIR ./src)
 
 # Add executable target with source files listed in SOURCE_FILES variable
-add_executable(TShell ${SOURCE_FILES})
+add_executable(TShell ${SOURCE_DIR}/main.cpp)

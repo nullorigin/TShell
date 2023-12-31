@@ -8,17 +8,13 @@
         "_UNICODE"
       ],
       "includePath": [
-        "D:\\Programs\\vcpkg\\installed\\x64-windows\\include\\Qt6\\QtWidgets",
-        "D:\\Programs\\vcpkg\\installed\\x64-windows\\include\\Qt6\\QtWidgets",
-        "D:\\Programs\\vcpkg\\installed\\x64-windows\\include\\Qt6\\**",
         "${env.INCLUDE}",
         "${workspaceRoot}\\**"
       ],
       "inheritEnvironments": [
-        "msvc_x64"
       ],
-      "intelliSenseMode": "windows-msvc-x64",
-      "name": "x64-Debug"
+      "intelliSenseMode": "linux-clang-x64",
+      "name": "Linux"
     }
   ]
 }

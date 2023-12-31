@@ -2,12 +2,10 @@
 #define CON_HPP
 #include <cstdio>
 #include <fcntl.h>
+#include <sstream>
 #include <stdio.h>
-#include <conio.h>
-#include <string>
-#include <urlmon.h>
-#include <winbase.h>
-#include <winsock.h>
+#include <termios.h>
+#include <unistd.h>
 
 struct Console {
   int Height;
@@ -250,10 +248,20 @@ struct Console {
   }
   inline auto UngetChar(char ch) -> int { return ungetc(ch, stdin); }
   inline auto GetChar(bool echo = false) -> int {
-      int ch = _getch();
-	  if (echo)
-		  printf("%c", ch);
-	  return ch;
+    struct termios oldt {};
+    struct termios newt {};
+    int ch = 0;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~ICANON;
+    if (echo == true)
+      newt.c_lflag &= ECHO;
+    else
+      newt.c_lflag &= ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    ch = getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return ch;
   }
 
   inline auto GetXY(int &x, int &y) -> int {
@@ -293,7 +301,24 @@ struct Console {
   }
 
   inline auto KeyHit() -> int {
-	return _kbhit();
+    struct termios oldt {};
+    struct termios newt {};
+    int ch = 0;
+    int oldf = 0;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+    ch = GetChar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    if (ch != EOF) {
+      ungetc(ch, stdin);
+      return 1;
+    }
+    return 0;
   }
 
   inline auto PrintChar(const char c) -> char {
@@ -325,19 +350,17 @@ struct Console {
   }
   auto GetHome() -> std::string { return GetEnv("HOME"); }
   auto GetCwd() -> std::string {
-      LPSTR buf = LPSTR();
-      GetCurrentDirectoryA(1024, buf);
-	  return std::string(buf);
+    char cwd[1024];
+    return getcwd(cwd, sizeof(cwd));
   }
   inline auto GetUser() -> std::string {
-      LPSTR user = nullptr;
-	  LPDWORD size = (LPDWORD)user;
-      GetUserNameA(user, size);
-	  return std::string(user).substr(0, *size - 1);
+    auto ss = std::stringstream{};
+    ss << cuserid(nullptr);
+    return ss.str();
   }
   static auto GetHostname() -> std::string {
-    LPSTR hostname = LPSTR();
-    GetComputerNameA(hostname, LPDWORD(1024));
+    char hostname[1024];
+    gethostname(hostname, sizeof(hostname));
     return hostname;
   }
   inline auto GetPass(const char *prompt) -> char * {
@@ -361,3 +384,4 @@ struct Console {
   }
 };
 #endif
+

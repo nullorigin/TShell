@@ -5,7 +5,6 @@
 #include "util.hpp"
 #include <chrono>
 #include <cstdio>
-#include <conio.h>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -450,7 +449,7 @@ private:
   static auto exec(const char *cmd) -> std::string {
     char buffer[128];
     std::string result = "";
-    FILE *pipe =  _popen(cmd, "r");
+    FILE *pipe =  popen(cmd, "r");
     if (pipe == nullptr) {
       throw std::runtime_error("popen() failed!");
     }
@@ -459,10 +458,10 @@ private:
         result += buffer;
       }
     } catch (...) {
-      _pclose(pipe);
+      pclose(pipe);
       throw;
     }
-    _pclose(pipe);
+    pclose(pipe);
     return result;
   }
 }; // namespace run

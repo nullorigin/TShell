@@ -4,13 +4,13 @@
       "name": "x64-Debug",
       "generator": "Ninja",
       "configurationType": "Debug",
-      "inheritEnvironments": [ "msvc_x64_x64" ],
-      "buildRoot": "${projectDir}\\out\\build\\${name}",
-      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "inheritEnvironments": [ ],
+      "buildRoot": "${projectDir}/out/build/",
+      "installRoot": "${projectDir}/out/install/",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
-      "intelliSenseMode": "windows-msvc-x64"
+      "intelliSenseMode": "linux-clang-x64"
     }
   ]
 }

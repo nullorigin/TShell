@@ -1,0 +1,5 @@
+{
+    "editor.defaultFormatter": "TabNine.tabnine-vscode",
+    "editor.defaultFoldingRangeProvider": "TabNine.tabnine-vscode",
+    "clangd.path": "/usr/bin/clangd"
+}

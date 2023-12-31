@@ -3,23 +3,22 @@
     "configurePresets": [
         {
             "name": "default",
-            "displayName": "Visual Studio Build Tools 2022 Release - x86_amd64",
-            "description": "Using compilers for Visual Studio 17 2022 (x86_x64 architecture)",
-            "generator": "Visual Studio 17 2022",
-            "toolset": "host=x86",
-            "architecture": "x64",
+            "displayName": "Clang 17.0.5 x64-alpine-linux-musl",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "CMAKE_C_COMPILER": "cl.exe",
-                "CMAKE_CXX_COMPILER": "cl.exe"
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
             }
         }
     ],
     "buildPresets": [
         {
             "name": "default-debug",
-            "displayName": "Visual Studio Build Tools 2022 Release - x86_amd64 - Debug",
+            "displayName": "Clang 17.0.5 x86_64-alpine-linux-musl",
             "configurePreset": "default",
             "configuration": "Debug"
         }
