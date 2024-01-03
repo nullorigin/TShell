@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "cmake",
+            "request": "launch",
+            "name": "TShell",
+            "cmakeDebugType": "configure",
+            "clean": false,
+            "configureAll": true,
+        },
+        {
+            "program": "${workspaceRoot}/out/build/default/Tshell",
+            "name": "Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "linux": {
+                "MIMode": "lldb",
+                "miDebuggerPath": "lldb",
+                "program": "${workspaceFolder}/out/build/default/Tshell"
+            },
+        }
+    ]
+}

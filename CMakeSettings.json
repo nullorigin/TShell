@@ -4,10 +4,12 @@
       "name": "x64-Debug",
       "generator": "Ninja",
       "configurationType": "Debug",
-      "inheritEnvironments": [ ],
+      "inheritEnvironments": [
+        "default"
+      ],
       "buildRoot": "${projectDir}/out/build/",
       "installRoot": "${projectDir}/out/install/",
-      "cmakeCommandArgs": "",
+      "cmakeCommandArgs": "-I/home/matt/src/TShell/src/include -I/home/matt/src/TShell/src/gui",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "intelliSenseMode": "linux-clang-x64"

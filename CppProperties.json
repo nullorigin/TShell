@@ -7,12 +7,7 @@
         "UNICODE",
         "_UNICODE"
       ],
-      "includePath": [
-        "${env.INCLUDE}",
-        "${workspaceRoot}\\**"
-      ],
-      "inheritEnvironments": [
-      ],
+      "inheritEnvironments": [],
       "intelliSenseMode": "linux-clang-x64",
       "name": "Linux"
     }

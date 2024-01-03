@@ -11,13 +11,13 @@
 #include <stdio.h>
 #include <string>
 #include <thread>
-#include <mutex>
-namespace origin {
+#include <vulkan/vulkan_core.h>
+namespace Origin {
 using namespace std;
 class App {
 private:
   int *p{nullptr};
-  mutex *Mutex{nullptr};
+  pthread_mutex_t *Mutex{nullptr};
   std::string Output{};
   std::string Input{};
   int RunState{};
@@ -78,7 +78,7 @@ switch. Uses the constants above as specifiers for the equivalent index. */
       TimerArr[i] = new Timer;
     }
     Con = new struct Console;
-    Mutex = new mutex;
+    Mutex = new pthread_mutex_t;
     p = new int;
   }
   inline void DeleteVar() {
@@ -91,9 +91,10 @@ switch. Uses the constants above as specifiers for the equivalent index. */
   }
 
 public:
-  App(int argc, char *argv[]) {
+  App(int argc, char **argv) {
     NewVar();
     *Con = Console();
+    *Mutex = PTHREAD_MUTEX_INITIALIZER;
     *p = 0;
     SetState(Uninitialized);
     Cycles = 0;
@@ -105,6 +106,7 @@ public:
   // and continues updating the input status until the application is exited or
   // a time limit is reached.
   auto loop(nanoseconds runtime) -> int {
+    mutexInit();
     if (runtime > nanoseconds::zero()) {
       TimerArr[0]->SetLimit(runtime);
     }
@@ -245,6 +247,15 @@ public:
   auto GetState() const -> int { return RunState; }
   auto GetOutput() -> std::string { return Output; }
   auto GetInput() -> std::string { return Input; }
+  auto GetMutex() -> pthread_mutex_t * { return Mutex; }
+  auto mutexLock() -> int { return pthread_mutex_lock(Mutex); }
+  auto mutexUnlock() -> int { return pthread_mutex_unlock(Mutex); }
+  auto mutexTryLock() -> int { return pthread_mutex_trylock(Mutex); }
+  auto mutexDestroy() -> int { return pthread_mutex_destroy(Mutex); }
+  auto mutexInit() -> int { return pthread_mutex_init(Mutex, nullptr); }
+  static auto GetThreadId() -> std::thread::id {
+    return std::this_thread::get_id();
+  }
   auto GetCycles() const -> long { return Cycles; }
   auto SetCycles(long cycles) -> void { Cycles = cycles; }
   auto incrementCycles() -> void {
@@ -265,9 +276,6 @@ public:
     return 0;
   }
   auto ResetCycles() -> void { Cycles = 0; }
-  static auto GetThreadId() -> std::thread::id {
-    return std::this_thread::get_id();
-  }
   auto SetStatus(bool status) -> bool {
     Status = status;
     return Status;
@@ -376,7 +384,7 @@ private:
     nanoseconds TimeMax;
     nanoseconds TimeEnd;
     while (true) {
-      Mutex->lock();
+      mutexLock();
       TimeMax = (TimerArr[0]->GetNow() + nanoseconds(8333333));
       Con->ClearScreen();
       flush(std::cout);
@@ -385,7 +393,7 @@ private:
       SetOutput(out, true);
       std::cout << GetOutput() << std::flush;
       TimeEnd = (TimerArr[0]->GetNow());
-      Mutex->unlock();
+      mutexUnlock();
       if (TimeEnd < TimeMax) {
         std::this_thread::sleep_for(TimeMax - TimeEnd);
       }
@@ -449,7 +457,7 @@ private:
   static auto exec(const char *cmd) -> std::string {
     char buffer[128];
     std::string result = "";
-    FILE *pipe =  popen(cmd, "r");
+    FILE *pipe = popen(cmd, "r");
     if (pipe == nullptr) {
       throw std::runtime_error("popen() failed!");
     }
@@ -465,5 +473,5 @@ private:
     return result;
   }
 }; // namespace run
-} // namespace origin
+} // namespace Origin
 #endif // RC_HPP

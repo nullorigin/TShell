@@ -4,13 +4,11 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
-#include <ostream>
-#include <sstream>
 #include <string>
-namespace origin {
+namespace Origin {
 using namespace std::chrono;
 using std::ios;
-auto OpenFile(std::string filepath) {
+inline auto OpenFile(std::string filepath) {
   std::fstream fstream = std::fstream(filepath.c_str(), ios::in | ios::out);
   if (fstream.is_open()) {
     fstream.close();
@@ -27,9 +25,9 @@ inline auto CloseFile(std::fstream &fstream) {
   }
   return 0;
 }
-auto ToString(int i) { return std::to_string(i); }
-auto ToString(const char *s) -> std::string { return {s}; }
-auto ToString(nanoseconds nano) {
+inline auto ToString(int i) { return std::to_string(i); }
+inline auto ToString(const char *s) -> std::string { return {s}; }
+inline auto ToString(nanoseconds nano) {
   return std::to_string(nano.count() / 1000000000.0);
 }
 inline auto ToString(microseconds mic) {
@@ -112,5 +110,5 @@ inline auto ToClockT(time_point<high_resolution_clock> tp) -> clock_t {
 inline auto ToClockT(nanoseconds ns) -> clock_t {
   return nanoseconds(ns).count();
 }
-} // namespace origin
+} // namespace Origin
 #endif // UTIL_HPP

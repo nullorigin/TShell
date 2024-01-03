@@ -3,7 +3,7 @@
 #include <chrono>
 #include <ctime>
 #include <string>
-namespace origin {
+namespace Origin {
 using namespace std::chrono;
 static int TimerNumber;
 struct Timer {
@@ -173,5 +173,5 @@ public:
   }
   auto IsRunning() -> bool { return Is(Started) || Is(Resumed) || Is(Paused); }
 };
-} // namespace origin
+} // namespace Origin
 #endif // TIMER_HPP

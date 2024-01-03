@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/matt/src/TShell/out/build/default",
+  "command": "/usr/bin/clang++ -I/home/matt/src/TShell/src -I/home/matt/src/TShell/src/include -g -std=gnu++17 -o CMakeFiles/TShell.dir/src/main.cpp.o -c /home/matt/src/TShell/src/main.cpp",
+  "file": "/home/matt/src/TShell/src/main.cpp",
+  "output": "CMakeFiles/TShell.dir/src/main.cpp.o"
+}
+]
