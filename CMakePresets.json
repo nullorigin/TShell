@@ -10,16 +10,15 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "CMAKE_C_COMPILER": "/usr/bin/clang",
-                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_CXX_COMPILER": "/usr/lib/llvm/17/bin/clang++",
                 "CMAKE_MAKE_PROGRAM": "/usr/bin/make"
             },
             "environment": {
-                "CC": "/usr/bin/clang",
-                "CXX": "/usr/bin/clang++",
-                "AR": "/usr/bin/llvm-ar",
-                "RANLIB": "/usr/bin/llvm-ranlib",
-                "LD": "/usr/bin/lld.ld",
+                "CC": "/usr/lib/llvm/17/bin/clang",
+                "CXX": "/usr/lib/llvm/17/bin/clang++",
+                "AR": "/usr/lib/llvm/17/bin/llvm-ar",
+                "RANLIB": "/usr/lib/llvm/17/bin/llvm-ranlib",
+                "LD": "/usr/lib/llvm/17/bin/lld.ld",
                 "LLVM": "1"
             }
         }
@@ -33,15 +32,14 @@
             "inheritConfigureEnvironment": true,
             "configuration": "Debug",
             "targets": [
-                "TShell",
-                "Gui"
+                "TShell"
             ],
             "environment": {
-                "CC": "/usr/bin/clang",
-                "CXX": "/usr/bin/clang++",
-                "AR": "/usr/bin/llvm-ar",
-                "RANLIB": "/usr/bin/llvm-ranlib",
-                "LD": "/usr/bin/lld.ld",
+                "CC": "/usr/lib/llvm/17/bin/clang",
+                "CXX": "/usr/lib/llvm/17/bin/clang++",
+                "AR": "/usr/lib/llvm/17/bin/llvm-ar",
+                "RANLIB": "/usr/lib/llvm/17/bin/llvm-ranlib",
+                "LD": "/usr/lib/llvm/17/bin/lld.ld",
                 "LLVM": "1"
             }
         }

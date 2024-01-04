@@ -2,14 +2,14 @@
   "configurations": [
     {
       "name": "x64-Debug",
-      "generator": "Ninja",
+      "generator": "Unix Makefiles",
       "configurationType": "Debug",
       "inheritEnvironments": [
         "default"
       ],
       "buildRoot": "${projectDir}/out/build/",
       "installRoot": "${projectDir}/out/install/",
-      "cmakeCommandArgs": "-I/home/matt/src/TShell/src/include -I/home/matt/src/TShell/src/gui",
+      "cmakeCommandArgs": "-I/home/matt/src/TShell/src/include",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "intelliSenseMode": "linux-clang-x64"

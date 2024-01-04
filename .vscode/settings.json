@@ -1,7 +1,7 @@
 {
     "editor.defaultFormatter": "TabNine.tabnine-vscode",
     "editor.defaultFoldingRangeProvider": "TabNine.tabnine-vscode",
-    "clangd.path": "/usr/bin/clangd",
+    "clangd.path": "/usr/lib/llvm/17/bin/clangd",
     "[json]": {
         "editor.defaultFormatter": "vscode.json-language-features"
     },
