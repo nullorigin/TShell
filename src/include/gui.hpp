@@ -1005,9 +1005,14 @@ GUI_API bool CheckboxFlags(const char *label, unsigned int *flags,
 GUI_API bool RadioButton(const char *label,
                          bool active); // use with e.g. if (RadioButton("one",
                                        // my_value==1)) { my_value = 1; }
-GUI_API bool RadioButton(const char *label, int *v,
-                         int v_button); // shortcut to handle the above
-                                        // pattern when value is an integer
+GUI_API inline bool RadioButton(const char *label, int *v, int v_button) {
+  const bool pressed = RadioButton(label, *v == v_button);
+  if (pressed)
+    *v = v_button;
+  return pressed;
+}
+// shortcut to handle the above
+// pattern when value is an integer
 GUI_API void ProgressBar(float fraction,
                          const Vec2 &size_arg = Vec2(-FLT_MIN, 0),
                          const char *overlay = NULL);
@@ -1324,11 +1329,17 @@ GUI_API bool Selectable(
                      // modify your selection state. size.x==0.0: use remaining
                      // width, size.x>0.0: specify width. size.y==0.0: use label
                      // height, size.y>0.0: specify height
-GUI_API bool Selectable(
-    const char *label, bool *p_selected, SelectableFlags flags = 0,
-    const Vec2 &size = Vec2(0,
-                            0)); // "bool* p_selected" point to the selection
-                                 // state (read-write), as a convenient helper.
+GUI_API inline bool Selectable(const char *label, bool *p_selected,
+                               SelectableFlags flags = 0,
+                               const Vec2 &size_arg = Vec2(0, 0)) {
+  if (Selectable(label, *p_selected, flags, size_arg)) {
+    *p_selected = !*p_selected;
+    return true;
+  }
+  return false;
+}
+// "bool* p_selected" point to the selection
+// state (read-write), as a convenient helper.
 
 // Widgets: List Boxes
 // - This is essentially a thin wrapper to using BeginChild/EndChild with the
@@ -1387,9 +1398,18 @@ GUI_API void PlotHistogram(const char *label,
 // - Those are merely shortcut to calling Text() with a format string. Output
 // single value in "name: value" format (tip: freely declare more in your code
 // to handle your types. you can add functions to the Gui namespace)
-GUI_API void Value(const char *prefix, bool b);
-GUI_API void Value(const char *prefix, int v);
-GUI_API void Value(const char *prefix, unsigned int v);
+GUI_API inline void Value(const char *prefix, bool b) {
+  Text("%s: %s", prefix, (b ? "true" : "false"));
+}
+
+GUI_API inline void Value(const char *prefix, int v) {
+  Text("%s: %d", prefix, v);
+}
+
+GUI_API inline void Value(const char *prefix, unsigned int v) {
+  Text("%s: %d", prefix, v);
+}
+
 GUI_API void Value(const char *prefix, float v,
                    const char *float_format = NULL);
 
@@ -4386,13 +4406,15 @@ struct IO {
       int native_legacy_index =
           -1); // [Optional] Specify index for legacy <1.87 IsKeyXXX() functions
                // with native indices + specify native keycode, scancode.
-  GUI_API void SetAppAcceptingEvents(
-      bool accepting_events); // Set master flag for accepting key/mouse/text
-                              // events (default to true). Useful if you have
-                              // native dialog boxes that are interrupting your
-                              // application loop/refresh, and you want to
-                              // disable events being queued while your app is
-                              // frozen.
+  GUI_API void SetAppAcceptingEvents(bool accepting_events) {
+    AppAcceptingEvents = accepting_events;
+  }
+  // Set master flag for accepting key/mouse/text
+  // events (default to true). Useful if you have
+  // native dialog boxes that are interrupting your
+  // application loop/refresh, and you want to
+  // disable events being queued while your app is
+  // frozen.
   GUI_API void ClearEventsQueue(); // Clear all incoming events.
   GUI_API void ClearInputKeys();   // Clear current keyboard/mouse/gamepad state
                                    // + current frame text input buffer.
@@ -4752,7 +4774,16 @@ struct OnceUponAFrame {
 struct TextFilter {
   GUI_API TextFilter(const char *default_filter = "");
   GUI_API bool Draw(const char *label = "Filter (inc,-exc)",
-                    float width = 0.0f); // Helper calling InputText+Build
+                    float width = 0.0f) {
+    if (width != 0.0f)
+      Gui::SetNextItemWidth(width);
+    bool value_changed =
+        Gui::InputText(label, InputBuf, GUI_ARRAYSIZE(InputBuf));
+    if (value_changed)
+      Build();
+    return value_changed;
+  }
+  // Helper calling InputText+Build
   GUI_API bool PassFilter(const char *text, const char *text_end = NULL) const;
   GUI_API void Build();
   void Clear() {
@@ -4863,8 +4894,12 @@ struct Storage {
   void Clear() { Data.clear(); }
   GUI_API int GetInt(ID key, int default_val = 0) const;
   GUI_API void SetInt(ID key, int val);
-  GUI_API bool GetBool(ID key, bool default_val = false) const;
-  GUI_API void SetBool(ID key, bool val);
+  GUI_API bool GetBool(ID key, bool default_val = false) const {
+    return GetInt(key, default_val ? 1 : 0) != 0;
+  }
+
+  GUI_API void SetBool(ID key, bool val) { SetInt(key, val ? 1 : 0); }
+
   GUI_API float GetFloat(ID key, float default_val = 0.0f) const;
   GUI_API void SetFloat(ID key, float val);
   GUI_API void *GetVoidPtr(ID key) const; // default_val is NULL
@@ -4881,7 +4916,10 @@ struct Storage {
   //      float* pvar = Gui::GetFloatRef(key); Gui::SliderFloat("var", pvar, 0,
   //      100.0f); some_var += *pvar;
   GUI_API int *GetIntRef(ID key, int default_val = 0);
-  GUI_API bool *GetBoolRef(ID key, bool default_val = false);
+  GUI_API bool *GetBoolRef(ID key, bool default_val = false) {
+    return (bool *)GetIntRef(key, default_val ? 1 : 0);
+  }
+
   GUI_API float *GetFloatRef(ID key, float default_val = 0.0f);
   GUI_API void **GetVoidPtrRef(ID key, void *default_val = NULL);
 
@@ -4890,7 +4928,10 @@ struct Storage {
   GUI_API void BuildSortByKey();
   // Obsolete: use on your own storage if you know only integer are being stored
   // (open/close all tree nodes)
-  GUI_API void SetAllInt(int val);
+  GUI_API void SetAllInt(int v) {
+    for (int i = 0; i < Data.Size; i++)
+      Data[i].val_i = v;
+  }
 };
 
 // Helper: Manually clip large list of items.
@@ -4937,7 +4978,8 @@ struct ListClipper {
   // the distance between your items, typically GetTextLineHeightWithSpacing()
   // or GetFrameHeightWithSpacing().
   GUI_API ListClipper();
-  GUI_API ~ListClipper();
+  GUI_API ~ListClipper() { End(); }
+
   GUI_API void Begin(int items_count, float items_height = -1.0f);
   GUI_API void
   End(); // Automatically called on the last call of Step() that returns false.
@@ -5386,8 +5428,20 @@ struct DrawList {
                   // (hit-testing and widget culling)
   GUI_API void PushClipRectFullScreen();
   GUI_API void PopClipRect();
-  GUI_API void PushTextureID(TextureID texture_id);
-  GUI_API void PopTextureID();
+  GUI_API void PushTextureID(TextureID texture_id) {
+    _TextureIdStack.push_back(texture_id);
+    _CmdHeader.TextureId = texture_id;
+    _OnChangedTextureID();
+  }
+
+  GUI_API void PopTextureID() {
+    _TextureIdStack.pop_back();
+    _CmdHeader.TextureId = (_TextureIdStack.Size == 0)
+                               ? (TextureID)NULL
+                               : _TextureIdStack.Data[_TextureIdStack.Size - 1];
+    _OnChangedTextureID();
+  }
+
   inline Vec2 GetClipRectMin() const {
     const Vec4 &cr = _ClipRectStack.back();
     return Vec2(cr.x, cr.y);
@@ -5417,22 +5471,69 @@ struct DrawList {
           DrawFlags flags = 0,
           float thickness =
               1.0f); // a: upper-left, b: lower-right (== upper-left + size)
-  GUI_API void
-  AddRectFilled(const Vec2 &p_min, const Vec2 &p_max, U32 col,
-                float rounding = 0.0f,
-                DrawFlags flags =
-                    0); // a: upper-left, b: lower-right (== upper-left + size)
+  GUI_API void AddRectFilled(const Vec2 &p_min, const Vec2 &p_max, U32 col,
+                             float rounding = 0.0f, DrawFlags flags = 0) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+    if (rounding < 0.5f ||
+        (flags & DrawFlags_RoundCornersMask_) == DrawFlags_RoundCornersNone) {
+      PrimReserve(6, 4);
+      PrimRect(p_min, p_max, col);
+    } else {
+      PathRect(p_min, p_max, rounding, flags);
+      PathFillConvex(col);
+    }
+  }
+  // a: upper-left, b: lower-right (== upper-left + size)
   GUI_API void AddRectFilledMultiColor(const Vec2 &p_min, const Vec2 &p_max,
                                        U32 col_upr_left, U32 col_upr_right,
                                        U32 col_bot_right, U32 col_bot_left);
   GUI_API void AddQuad(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                       const Vec2 &p4, U32 col, float thickness = 1.0f);
+                       const Vec2 &p4, U32 col, float thickness = 1.0f) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathLineTo(p2);
+    PathLineTo(p3);
+    PathLineTo(p4);
+    PathStroke(col, DrawFlags_Closed, thickness);
+  }
+
   GUI_API void AddQuadFilled(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                             const Vec2 &p4, U32 col);
+                             const Vec2 &p4, U32 col) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathLineTo(p2);
+    PathLineTo(p3);
+    PathLineTo(p4);
+    PathFillConvex(col);
+  }
+
   GUI_API void AddTriangle(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                           U32 col, float thickness = 1.0f);
+                           U32 col, float thickness = 1.0f) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathLineTo(p2);
+    PathLineTo(p3);
+    PathStroke(col, DrawFlags_Closed, thickness);
+  }
+
   GUI_API void AddTriangleFilled(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                                 U32 col);
+                                 U32 col) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathLineTo(p2);
+    PathLineTo(p3);
+    PathFillConvex(col);
+  }
+
   GUI_API void AddCircle(const Vec2 &center, float radius, U32 col,
                          int num_segments = 0, float thickness = 1.0f);
   GUI_API void AddCircleFilled(const Vec2 &center, float radius, U32 col,
@@ -5448,7 +5549,10 @@ struct DrawList {
                                 float radius_y, U32 col, float rot = 0.0f,
                                 int num_segments = 0);
   GUI_API void AddText(const Vec2 &pos, U32 col, const char *text_begin,
-                       const char *text_end = NULL);
+                       const char *text_end = NULL) {
+    AddText(NULL, 0.0f, pos, col, text_begin, text_end);
+  }
+
   GUI_API void AddText(const Font *font, float font_size, const Vec2 &pos,
                        U32 col, const char *text_begin,
                        const char *text_end = NULL, float wrap_width = 0.0f,
@@ -5456,13 +5560,28 @@ struct DrawList {
   GUI_API void AddPolyline(const Vec2 *points, int num_points, U32 col,
                            DrawFlags flags, float thickness);
   GUI_API void AddConvexPolyFilled(const Vec2 *points, int num_points, U32 col);
-  GUI_API void
-  AddBezierCubic(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3, const Vec2 &p4,
-                 U32 col, float thickness,
-                 int num_segments = 0); // Cubic Bezier (4 control points)
-  GUI_API void AddBezierQuadratic(
-      const Vec2 &p1, const Vec2 &p2, const Vec2 &p3, U32 col, float thickness,
-      int num_segments = 0); // Quadratic Bezier (3 control points)
+  GUI_API void AddBezierCubic(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
+                              const Vec2 &p4, U32 col, float thickness,
+                              int num_segments = 0) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathBezierCubicCurveTo(p2, p3, p4, num_segments);
+    PathStroke(col, 0, thickness);
+  }
+  // Cubic Bezier (4 control points)
+  GUI_API void AddBezierQuadratic(const Vec2 &p1, const Vec2 &p2,
+                                  const Vec2 &p3, U32 col, float thickness,
+                                  int num_segments = 0) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    PathLineTo(p1);
+    PathBezierQuadraticCurveTo(p2, p3, num_segments);
+    PathStroke(col, 0, thickness);
+  }
+  // Quadratic Bezier (3 control points)
 
   // Image primitives
   // - Read FAQ to understand what TextureID is.
@@ -5474,12 +5593,40 @@ struct DrawList {
   GUI_API void AddImage(TextureID user_texture_id, const Vec2 &p_min,
                         const Vec2 &p_max, const Vec2 &uv_min = Vec2(0, 0),
                         const Vec2 &uv_max = Vec2(1, 1),
-                        U32 col = GUI_COL32_WHITE);
+                        U32 col = GUI_COL32_WHITE) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    const bool push_texture_id = user_texture_id != _CmdHeader.TextureId;
+    if (push_texture_id)
+      PushTextureID(user_texture_id);
+
+    PrimReserve(6, 4);
+    PrimRectUV(p_min, p_max, uv_min, uv_max, col);
+
+    if (push_texture_id)
+      PopTextureID();
+  }
+
   GUI_API void
   AddImageQuad(TextureID user_texture_id, const Vec2 &p1, const Vec2 &p2,
                const Vec2 &p3, const Vec2 &p4, const Vec2 &uv1 = Vec2(0, 0),
                const Vec2 &uv2 = Vec2(1, 0), const Vec2 &uv3 = Vec2(1, 1),
-               const Vec2 &uv4 = Vec2(0, 1), U32 col = GUI_COL32_WHITE);
+               const Vec2 &uv4 = Vec2(0, 1), U32 col = GUI_COL32_WHITE) {
+    if ((col & GUI_COL32_A_MASK) == 0)
+      return;
+
+    const bool push_texture_id = user_texture_id != _CmdHeader.TextureId;
+    if (push_texture_id)
+      PushTextureID(user_texture_id);
+
+    PrimReserve(6, 4);
+    PrimQuadUV(p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
+
+    if (push_texture_id)
+      PopTextureID();
+  }
+
   GUI_API void AddImageRounded(TextureID user_texture_id, const Vec2 &p_min,
                                const Vec2 &p_max, const Vec2 &uv_min,
                                const Vec2 &uv_max, U32 col, float rounding,
@@ -5533,8 +5680,15 @@ struct DrawList {
                 // call (to allow for dependent rendering / blending). Otherwise
                 // primitives are merged into the same draw-call as much as
                 // possible
-  GUI_API DrawList *
-  CloneOutput() const; // Create a clone of the CmdBuffer/IdxBuffer/VtxBuffer.
+  GUI_API DrawList *CloneOutput() const {
+    DrawList *dst = GUI_NEW(DrawList(_Data));
+    dst->CmdBuffer = CmdBuffer;
+    dst->IdxBuffer = IdxBuffer;
+    dst->VtxBuffer = VtxBuffer;
+    dst->Flags = Flags;
+    return dst;
+  }
+  // Create a clone of the CmdBuffer/IdxBuffer/VtxBuffer.
 
   // Advanced: Channels
   // - Use to split render into layers. By switching channels to can render
@@ -5560,11 +5714,60 @@ struct DrawList {
   GUI_API void
   PrimRect(const Vec2 &a, const Vec2 &b,
            U32 col); // Axis aligned rectangle (composed of two triangles)
-  GUI_API void PrimRectUV(const Vec2 &a, const Vec2 &b, const Vec2 &uv_a,
-                          const Vec2 &uv_b, U32 col);
+  GUI_API void PrimRectUV(const Vec2 &a, const Vec2 &c, const Vec2 &uv_a,
+                          const Vec2 &uv_c, U32 col) {
+    Vec2 b(c.x, a.y), d(a.x, c.y), uv_b(uv_c.x, uv_a.y), uv_d(uv_a.x, uv_c.y);
+    DrawIdx idx = (DrawIdx)_VtxCurrentIdx;
+    _IdxWritePtr[0] = idx;
+    _IdxWritePtr[1] = (DrawIdx)(idx + 1);
+    _IdxWritePtr[2] = (DrawIdx)(idx + 2);
+    _IdxWritePtr[3] = idx;
+    _IdxWritePtr[4] = (DrawIdx)(idx + 2);
+    _IdxWritePtr[5] = (DrawIdx)(idx + 3);
+    _VtxWritePtr[0].pos = a;
+    _VtxWritePtr[0].uv = uv_a;
+    _VtxWritePtr[0].col = col;
+    _VtxWritePtr[1].pos = b;
+    _VtxWritePtr[1].uv = uv_b;
+    _VtxWritePtr[1].col = col;
+    _VtxWritePtr[2].pos = c;
+    _VtxWritePtr[2].uv = uv_c;
+    _VtxWritePtr[2].col = col;
+    _VtxWritePtr[3].pos = d;
+    _VtxWritePtr[3].uv = uv_d;
+    _VtxWritePtr[3].col = col;
+    _VtxWritePtr += 4;
+    _VtxCurrentIdx += 4;
+    _IdxWritePtr += 6;
+  }
+
   GUI_API void PrimQuadUV(const Vec2 &a, const Vec2 &b, const Vec2 &c,
                           const Vec2 &d, const Vec2 &uv_a, const Vec2 &uv_b,
-                          const Vec2 &uv_c, const Vec2 &uv_d, U32 col);
+                          const Vec2 &uv_c, const Vec2 &uv_d, U32 col) {
+    DrawIdx idx = (DrawIdx)_VtxCurrentIdx;
+    _IdxWritePtr[0] = idx;
+    _IdxWritePtr[1] = (DrawIdx)(idx + 1);
+    _IdxWritePtr[2] = (DrawIdx)(idx + 2);
+    _IdxWritePtr[3] = idx;
+    _IdxWritePtr[4] = (DrawIdx)(idx + 2);
+    _IdxWritePtr[5] = (DrawIdx)(idx + 3);
+    _VtxWritePtr[0].pos = a;
+    _VtxWritePtr[0].uv = uv_a;
+    _VtxWritePtr[0].col = col;
+    _VtxWritePtr[1].pos = b;
+    _VtxWritePtr[1].uv = uv_b;
+    _VtxWritePtr[1].col = col;
+    _VtxWritePtr[2].pos = c;
+    _VtxWritePtr[2].uv = uv_c;
+    _VtxWritePtr[2].col = col;
+    _VtxWritePtr[3].pos = d;
+    _VtxWritePtr[3].uv = uv_d;
+    _VtxWritePtr[3].col = col;
+    _VtxWritePtr += 4;
+    _VtxCurrentIdx += 4;
+    _IdxWritePtr += 6;
+  }
+
   inline void PrimWriteVtx(const Vec2 &pos, const Vec2 &uv, U32 col) {
     _VtxWritePtr->pos = pos;
     _VtxWritePtr->uv = uv;
@@ -5592,8 +5795,29 @@ struct DrawList {
 
   // [Internal helpers]
   GUI_API void _ResetForNewFrame();
-  GUI_API void _ClearFreeMemory();
-  GUI_API void _PopUnusedDrawCmd();
+  GUI_API void _ClearFreeMemory() {
+    CmdBuffer.clear();
+    IdxBuffer.clear();
+    VtxBuffer.clear();
+    Flags = DrawListFlags_None;
+    _VtxCurrentIdx = 0;
+    _VtxWritePtr = NULL;
+    _IdxWritePtr = NULL;
+    _ClipRectStack.clear();
+    _TextureIdStack.clear();
+    _Path.clear();
+    _Splitter.ClearFreeMemory();
+  }
+
+  GUI_API void _PopUnusedDrawCmd() {
+    while (CmdBuffer.Size > 0) {
+      DrawCmd *curr_cmd = &CmdBuffer.Data[CmdBuffer.Size - 1];
+      if (curr_cmd->ElemCount != 0 || curr_cmd->UserCallback != NULL)
+        return; // break;
+      CmdBuffer.pop_back();
+    }
+  }
+
   GUI_API void _TryMergeDrawCmds();
   GUI_API void _OnChangedClipRect();
   GUI_API void _OnChangedTextureID();
@@ -5635,21 +5859,49 @@ struct DrawData {
 
   // Functions
   DrawData() { Clear(); }
-  GUI_API void Clear();
+  GUI_API void Clear() {
+    Valid = false;
+    CmdListsCount = TotalIdxCount = TotalVtxCount = 0;
+    CmdLists.resize(0); // The DrawList are NOT owned by DrawData but e.g. by
+                        // Context, so we don't clear them.
+    DisplayPos = DisplaySize = FramebufferScale = Vec2(0.0f, 0.0f);
+    OwnerViewport = NULL;
+  }
+
   GUI_API void
   AddDrawList(DrawList *draw_list); // Helper to add an external draw list
                                     // into an existing DrawData.
-  GUI_API void
-  DeIndexAllBuffers(); // Helper to convert all buffers from indexed to
-                       // non-indexed, in case you cannot render indexed. Note:
-                       // this is slow and most likely a waste of resources.
-                       // Always prefer indexed rendering!
-  GUI_API void ScaleClipRects(
-      const Vec2 &fb_scale); // Helper to scale the ClipRect field of each
-                             // DrawCmd. Use if your final output buffer is
-                             // at a different scale than Dear Gui expects,
-                             // or if there is a difference between your
-                             // window resolution and framebuffer resolution.
+  GUI_API void DeIndexAllBuffers() {
+    Vector<DrawVert> new_vtx_buffer;
+    TotalVtxCount = TotalIdxCount = 0;
+    for (int i = 0; i < CmdListsCount; i++) {
+      DrawList *cmd_list = CmdLists[i];
+      if (cmd_list->IdxBuffer.empty())
+        continue;
+      new_vtx_buffer.resize(cmd_list->IdxBuffer.Size);
+      for (int j = 0; j < cmd_list->IdxBuffer.Size; j++)
+        new_vtx_buffer[j] = cmd_list->VtxBuffer[cmd_list->IdxBuffer[j]];
+      cmd_list->VtxBuffer.swap(new_vtx_buffer);
+      cmd_list->IdxBuffer.resize(0);
+      TotalVtxCount += cmd_list->VtxBuffer.Size;
+    }
+  }
+  // Helper to convert all buffers from indexed to
+  // non-indexed, in case you cannot render indexed. Note:
+  // this is slow and most likely a waste of resources.
+  // Always prefer indexed rendering!
+  GUI_API void ScaleClipRects(const Vec2 &fb_scale) {
+    for (DrawList *draw_list : CmdLists)
+      for (DrawCmd &cmd : draw_list->CmdBuffer)
+        cmd.ClipRect =
+            Vec4(cmd.ClipRect.x * fb_scale.x, cmd.ClipRect.y * fb_scale.y,
+                 cmd.ClipRect.z * fb_scale.x, cmd.ClipRect.w * fb_scale.y);
+  }
+  // Helper to scale the ClipRect field of each
+  // DrawCmd. Use if your final output buffer is
+  // at a different scale than Dear Gui expects,
+  // or if there is a difference between your
+  // window resolution and framebuffer resolution.
 };
 
 //-----------------------------------------------------------------------------
@@ -5763,12 +6015,27 @@ struct FontGlyphRangesBuilder {
       const char *text,
       const char *text_end =
           NULL); // Add string (each character of the UTF-8 string are added)
-  GUI_API void AddRanges(
-      const Wchar
-          *ranges); // Add ranges, e.g.
-                    // builder.AddRanges(FontAtlas::GetGlyphRangesDefault())
-                    // to force add all of ASCII/Latin+Ext
-  GUI_API void BuildRanges(Vector<Wchar> *out_ranges); // Output new ranges
+  GUI_API void AddRanges(const Wchar *ranges) {
+    for (; ranges[0]; ranges += 2)
+      for (unsigned int c = ranges[0];
+           c <= ranges[1] && c <= GUI_UNICODE_CODEPOINT_MAX; c++) //-V560
+        AddChar((Wchar)c);
+  }
+  // Add ranges, e.g.
+  // builder.AddRanges(FontAtlas::GetGlyphRangesDefault())
+  // to force add all of ASCII/Latin+Ext
+  GUI_API void BuildRanges(Vector<Wchar> *out_ranges) {
+    const int max_codepoint = GUI_UNICODE_CODEPOINT_MAX;
+    for (int n = 0; n <= max_codepoint; n++)
+      if (GetBit(n)) {
+        out_ranges->push_back((Wchar)n);
+        while (n < max_codepoint && GetBit(n + 1))
+          n++;
+        out_ranges->push_back((Wchar)n);
+      }
+    out_ranges->push_back(0);
+  }
+  // Output new ranges
 };
 
 // See FontAtlas::AddCustomRectXXX functions.
@@ -5878,7 +6145,12 @@ struct FontAtlas {
                   // texture has been copied to graphics memory.
   GUI_API void
   ClearFonts(); // Clear output font data (glyphs storage, UV coordinates).
-  GUI_API void Clear(); // Clear all input and output.
+  GUI_API void Clear() {
+    ClearInputData();
+    ClearTexData();
+    ClearFonts();
+  }
+  // Clear all input and output.
 
   // Build atlas, retrieve pixel data.
   // User is in charge of copying the pixels into graphics memory (e.g. create a
@@ -5890,10 +6162,22 @@ struct FontAtlas {
   // emitted will always be white (~75% of memory/bandwidth waste.
   GUI_API bool Build(); // Build pixels data. This is called automatically for
                         // you by the GetTexData*** functions.
-  GUI_API void
-  GetTexDataAsAlpha8(unsigned char **out_pixels, int *out_width,
-                     int *out_height,
-                     int *out_bytes_per_pixel = NULL); // 1 byte per-pixel
+  GUI_API void GetTexDataAsAlpha8(unsigned char **out_pixels, int *out_width,
+                                  int *out_height,
+                                  int *out_bytes_per_pixel = NULL) {
+    // Build atlas on demand
+    if (TexPixelsAlpha8 == NULL)
+      Build();
+
+    *out_pixels = TexPixelsAlpha8;
+    if (out_width)
+      *out_width = TexWidth;
+    if (out_height)
+      *out_height = TexHeight;
+    if (out_bytes_per_pixel)
+      *out_bytes_per_pixel = 1;
+  }
+  // 1 byte per-pixel
   GUI_API void
   GetTexDataAsRGBA32(unsigned char **out_pixels, int *out_width,
                      int *out_height,
@@ -5915,26 +6199,89 @@ struct FontAtlas {
   // https://github.com/ocornut/imgui/blob/master/docs/FONTS.md/#about-utf-8-encoding
   // for details. NB: Consider using FontGlyphRangesBuilder to build glyph
   // ranges from textual data.
-  GUI_API const Wchar *GetGlyphRangesDefault(); // Basic Latin, Extended Latin
-  GUI_API const Wchar *GetGlyphRangesGreek();   // Default + Greek and Coptic
-  GUI_API const Wchar *GetGlyphRangesKorean();  // Default + Korean characters
+  GUI_API const Wchar *GetGlyphRangesDefault() {
+    static const Wchar ranges[] = {
+        0x0020,
+        0x00FF, // Basic Latin + Latin Supplement
+        0,
+    };
+    return &ranges[0];
+  }
+  // Basic Latin, Extended Latin
+  GUI_API const Wchar *GetGlyphRangesGreek() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin + Latin Supplement
+        0x0370, 0x03FF, // Greek and Coptic
+        0,
+    };
+    return &ranges[0];
+  }
+  // Default + Greek and Coptic
+  GUI_API const Wchar *GetGlyphRangesKorean() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin + Latin Supplement
+        0x3131, 0x3163, // Korean alphabets
+        0xAC00, 0xD7A3, // Korean characters
+        0xFFFD, 0xFFFD, // Invalid
+        0,
+    };
+    return &ranges[0];
+  }
+  // Default + Korean characters
   GUI_API const Wchar *
   GetGlyphRangesJapanese(); // Default + Hiragana, Katakana, Half-Width,
                             // Selection of 2999 Ideographs
-  GUI_API const Wchar *
-  GetGlyphRangesChineseFull(); // Default + Half-Width + Japanese
-                               // Hiragana/Katakana + full set of about 21000
-                               // CJK Unified Ideographs
+  GUI_API const Wchar *GetGlyphRangesChineseFull() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin + Latin Supplement
+        0x2000, 0x206F, // General Punctuation
+        0x3000, 0x30FF, // CJK Symbols and Punctuations, Hiragana, Katakana
+        0x31F0, 0x31FF, // Katakana Phonetic Extensions
+        0xFF00, 0xFFEF, // Half-width characters
+        0xFFFD, 0xFFFD, // Invalid
+        0x4e00, 0x9FAF, // CJK Ideograms
+        0,
+    };
+    return &ranges[0];
+  }
+  // Default + Half-Width + Japanese
+  // Hiragana/Katakana + full set of about 21000
+  // CJK Unified Ideographs
   GUI_API const Wchar *
   GetGlyphRangesChineseSimplifiedCommon(); // Default + Half-Width + Japanese
                                            // Hiragana/Katakana + set of 2500
                                            // CJK Unified Ideographs for common
                                            // simplified Chinese
-  GUI_API const Wchar *
-  GetGlyphRangesCyrillic(); // Default + about 400 Cyrillic characters
-  GUI_API const Wchar *GetGlyphRangesThai(); // Default + Thai characters
-  GUI_API const Wchar *
-  GetGlyphRangesVietnamese(); // Default + Vietnamese characters
+  GUI_API const Wchar *GetGlyphRangesCyrillic() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin + Latin Supplement
+        0x0400, 0x052F, // Cyrillic + Cyrillic Supplement
+        0x2DE0, 0x2DFF, // Cyrillic Extended-A
+        0xA640, 0xA69F, // Cyrillic Extended-B
+        0,
+    };
+    return &ranges[0];
+  }
+  // Default + about 400 Cyrillic characters
+  GUI_API const Wchar *GetGlyphRangesThai() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin
+        0x2010, 0x205E, // Punctuations
+        0x0E00, 0x0E7F, // Thai
+        0,
+    };
+    return &ranges[0];
+  }
+  // Default + Thai characters
+  GUI_API const Wchar *GetGlyphRangesVietnamese() {
+    static const Wchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin
+        0x0102, 0x0103, 0x0110, 0x0111, 0x0128, 0x0129, 0x0168, 0x0169,
+        0x01A0, 0x01A1, 0x01AF, 0x01B0, 0x1EA0, 0x1EF9, 0,
+    };
+    return &ranges[0];
+  }
+  // Default + Vietnamese characters
 
   //-------------------------------------------
   // [BETA] Custom Rectangles/Glyphs API
@@ -6092,7 +6439,8 @@ struct Font {
 
   // Methods
   GUI_API Font();
-  GUI_API ~Font();
+  GUI_API ~Font() { ClearOutputData(); }
+
   GUI_API const FontGlyph *FindGlyph(Wchar c) const;
   GUI_API const FontGlyph *FindGlyphNoFallback(Wchar c) const;
   float GetCharAdvance(Wchar c) const {
@@ -6124,7 +6472,19 @@ struct Font {
 
   // [Internal] Don't use!
   GUI_API void BuildLookupTable();
-  GUI_API void ClearOutputData();
+  GUI_API void ClearOutputData() {
+    FontSize = 0.0f;
+    FallbackAdvanceX = 0.0f;
+    Glyphs.clear();
+    IndexAdvanceX.clear();
+    IndexLookup.clear();
+    FallbackGlyph = NULL;
+    ContainerAtlas = NULL;
+    DirtyLookupTables = true;
+    Ascent = Descent = 0.0f;
+    MetricsTotalSurface = 0;
+  }
+
   GUI_API void GrowIndex(int new_size);
   GUI_API void AddGlyph(const FontConfig *src_cfg, Wchar c, float x0, float y0,
                         float x1, float y1, float u0, float v0, float u1,
@@ -6134,8 +6494,20 @@ struct Font {
       bool overwrite_dst =
           true); // Makes 'dst' character/glyph points to 'src' character/glyph.
                  // Currently needs to be called AFTER fonts have been built.
-  GUI_API void SetGlyphVisible(Wchar c, bool visible);
-  GUI_API bool IsGlyphRangeUnused(unsigned int c_begin, unsigned int c_last);
+  GUI_API void SetGlyphVisible(Wchar c, bool visible) {
+    if (FontGlyph *glyph = (FontGlyph *)(void *)FindGlyph((Wchar)c))
+      glyph->Visible = visible ? 1 : 0;
+  }
+
+  GUI_API bool IsGlyphRangeUnused(unsigned int c_begin, unsigned int c_last) {
+    unsigned int page_begin = (c_begin / 4096);
+    unsigned int page_last = (c_last / 4096);
+    for (unsigned int page_n = page_begin; page_n <= page_last; page_n++)
+      if ((page_n >> 3) < sizeof(Used4kPagesMap))
+        if (Used4kPagesMap[page_n >> 3] & (1 << (page_n & 7)))
+          return false;
+    return true;
+  }
 };
 
 //-----------------------------------------------------------------------------
@@ -7024,7 +7396,15 @@ GUI_API inline const char *StrSkipBlank(const char *str) {
   return str;
 }
 // Find first non-blank character.
-GUI_API int StrlenW(const Wchar *str); // Computer string length (Wchar string)
+GUI_API inline int StrlenW(const Wchar *str) {
+  // return (int)wcslen((const wchar_t*)str);  // FIXME-OPT: Could use this when
+  // wchar_t are 16-bit
+  int n = 0;
+  while (*str++)
+    n++;
+  return n;
+}
+// Computer string length (Wchar string)
 GUI_API inline const Wchar *StrbolW(const Wchar *buf_mid_line,
                                     const Wchar *buf_begin) {
   while (buf_mid_line > buf_begin && buf_mid_line[-1] != '\n')
@@ -7054,8 +7434,38 @@ GUI_API void FormatStringToTempBufferV(const char **out_buf,
                                        const char **out_buf_end,
                                        const char *fmt, va_list args)
     GUI_FMTLIST(3);
-GUI_API const char *ParseFormatFindStart(const char *format);
-GUI_API const char *ParseFormatFindEnd(const char *format);
+GUI_API inline const char *ParseFormatFindStart(const char *fmt) {
+  while (char c = fmt[0]) {
+    if (c == '%' && fmt[1] != '%')
+      return fmt;
+    else if (c == '%')
+      fmt++;
+    fmt++;
+  }
+  return fmt;
+}
+
+GUI_API inline const char *ParseFormatFindEnd(const char *fmt) {
+  // Printf/scanf types modifiers: I/L/h/j/l/t/w/z. Other uppercase letters
+  // qualify as types aka end of the format.
+  if (fmt[0] != '%')
+    return fmt;
+  const unsigned int ignored_uppercase_mask =
+      (1 << ('I' - 'A')) | (1 << ('L' - 'A'));
+  const unsigned int ignored_lowercase_mask =
+      (1 << ('h' - 'a')) | (1 << ('j' - 'a')) | (1 << ('l' - 'a')) |
+      (1 << ('t' - 'a')) | (1 << ('w' - 'a')) | (1 << ('z' - 'a'));
+  for (char c; (c = *fmt) != 0; fmt++) {
+    if (c >= 'A' && c <= 'Z' &&
+        ((1 << (c - 'A')) & ignored_uppercase_mask) == 0)
+      return fmt + 1;
+    if (c >= 'a' && c <= 'z' &&
+        ((1 << (c - 'a')) & ignored_lowercase_mask) == 0)
+      return fmt + 1;
+  }
+  return fmt;
+}
+
 GUI_API const char *ParseFormatTrimDecorations(const char *format, char *buf,
                                                size_t buf_size);
 GUI_API void ParseFormatSanitizeForPrinting(const char *fmt_in, char *fmt_out,
@@ -7113,9 +7523,17 @@ GUI_API int TextCountUtf8BytesFromStr(
     const Wchar *in_text,
     const Wchar
         *in_text_end); // return number of bytes to express string in UTF-8
-GUI_API const char *TextFindPreviousUtf8Codepoint(
-    const char *in_text_start,
-    const char *in_text_curr); // return previous UTF-8 code-point.
+GUI_API inline const char *
+TextFindPreviousUtf8Codepoint(const char *in_text_start,
+                              const char *in_text_curr) {
+  while (in_text_curr > in_text_start) {
+    in_text_curr--;
+    if ((*in_text_curr & 0xC0) != 0x80)
+      return in_text_curr;
+  }
+  return in_text_start;
+}
+// return previous UTF-8 code-point.
 
 // Helpers: File System
 #ifdef GUI_DISABLE_FILE_FUNCTIONS
@@ -7294,8 +7712,17 @@ static inline float ExponentialMovingAverage(float avg, float sample, int n) {
 GUI_MSVC_RUNTIME_CHECKS_RESTORE
 
 // Helpers: Geometry
-GUI_API Vec2 BezierCubicCalc(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                             const Vec2 &p4, float t);
+GUI_API inline Vec2 BezierCubicCalc(const Vec2 &p1, const Vec2 &p2,
+                                    const Vec2 &p3, const Vec2 &p4, float t) {
+  float u = 1.0f - t;
+  float w1 = u * u * u;
+  float w2 = 3 * u * u * t;
+  float w3 = 3 * u * t * t;
+  float w4 = t * t * t;
+  return Vec2(w1 * p1.x + w2 * p2.x + w3 * p3.x + w4 * p4.x,
+              w1 * p1.y + w2 * p2.y + w3 * p3.y + w4 * p4.y);
+}
+
 GUI_API Vec2 BezierCubicClosestPoint(
     const Vec2 &p1, const Vec2 &p2, const Vec2 &p3, const Vec2 &p4,
     const Vec2 &p,
@@ -7304,8 +7731,16 @@ GUI_API Vec2 BezierCubicClosestPointCasteljau(
     const Vec2 &p1, const Vec2 &p2, const Vec2 &p3, const Vec2 &p4,
     const Vec2 &p, float tess_tol); // For auto-tessellated curves you can use
                                     // tess_tol = style.CurveTessellationTol
-GUI_API Vec2 BezierQuadraticCalc(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                                 float t);
+GUI_API inline Vec2 BezierQuadraticCalc(const Vec2 &p1, const Vec2 &p2,
+                                        const Vec2 &p3, float t) {
+  float u = 1.0f - t;
+  float w1 = u * u;
+  float w2 = 2 * u * t;
+  float w3 = t * t;
+  return Vec2(w1 * p1.x + w2 * p2.x + w3 * p3.x,
+              w1 * p1.y + w2 * p2.y + w3 * p3.y);
+}
+
 GUI_API Vec2 LineClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &p);
 GUI_API inline bool TriangleContainsPoint(const Vec2 &a, const Vec2 &b,
                                           const Vec2 &c, const Vec2 &p) {
@@ -8291,8 +8726,38 @@ struct GUI_API MenuColumns {
   MenuColumns() { memset(this, 0, sizeof(*this)); }
   void Update(float spacing, bool window_reappearing);
   float DeclColumns(float w_icon, float w_label, float w_shortcut,
-                    float w_mark);
-  void CalcNextTotalWidth(bool update_offsets);
+                    float w_mark) {
+    Widths[0] = Max(Widths[0], (U16)w_icon);
+    Widths[1] = Max(Widths[1], (U16)w_label);
+    Widths[2] = Max(Widths[2], (U16)w_shortcut);
+    Widths[3] = Max(Widths[3], (U16)w_mark);
+    CalcNextTotalWidth(false);
+    return (float)Max(TotalWidth, NextTotalWidth);
+  }
+
+  void CalcNextTotalWidth(bool update_offsets) {
+    U16 offset = 0;
+    bool want_spacing = false;
+    for (int i = 0; i < GUI_ARRAYSIZE(Widths); i++) {
+      U16 width = Widths[i];
+      if (want_spacing && width > 0)
+        offset += Spacing;
+      want_spacing |= (width > 0);
+      if (update_offsets) {
+        if (i == 1) {
+          OffsetLabel = offset;
+        }
+        if (i == 2) {
+          OffsetShortcut = offset;
+        }
+        if (i == 3) {
+          OffsetMark = offset;
+        }
+      }
+      offset += width;
+    }
+    NextTotalWidth = offset;
+  }
 };
 
 // Internal temporary state for deactivating InputText() instances.
@@ -10951,16 +11416,45 @@ GUI_API void UpdateWindowParentAndRootLinks(Window *window, WindowFlags flags,
 GUI_API Vec2 CalcWindowNextAutoFitSize(Window *window);
 GUI_API bool IsWindowChildOf(Window *window, Window *potential_parent,
                              bool popup_hierarchy);
-GUI_API bool IsWindowWithinBeginStackOf(Window *window,
-                                        Window *potential_parent);
+GUI_API inline bool IsWindowWithinBeginStackOf(Window *window,
+                                               Window *potential_parent) {
+  if (window->RootWindow == potential_parent)
+    return true;
+  while (window != NULL) {
+    if (window == potential_parent)
+      return true;
+    window = window->ParentWindowInBeginStack;
+  }
+  return false;
+}
+
 GUI_API bool IsWindowAbove(Window *potential_above, Window *potential_below);
-GUI_API bool IsWindowNavFocusable(Window *window);
+GUI_API inline bool IsWindowNavFocusable(Window *window) {
+  return window->WasActive && window == window->RootWindow &&
+         !(window->Flags & WindowFlags_NoNavFocus);
+}
+
 GUI_API void SetWindowPos(Window *window, const Vec2 &pos, Cond cond = 0);
 GUI_API void SetWindowSize(Window *window, const Vec2 &size, Cond cond = 0);
-GUI_API void SetWindowCollapsed(Window *window, bool collapsed, Cond cond = 0);
+GUI_API inline void SetWindowCollapsed(Window *window, bool collapsed,
+                                       Cond cond = 0) {
+  // Test condition (NB: bit 0 is always true) and clear flags for next time
+  if (cond && (window->SetWindowCollapsedAllowFlags & cond) == 0)
+    return;
+  window->SetWindowCollapsedAllowFlags &=
+      ~(Cond_Once | Cond_FirstUseEver | Cond_Appearing);
+
+  // Set
+  window->Collapsed = collapsed;
+}
+
 GUI_API void SetWindowHitTestHole(Window *window, const Vec2 &pos,
                                   const Vec2 &size);
-GUI_API void SetWindowHiddenAndSkipItemsForCurrentFrame(Window *window);
+GUI_API inline void SetWindowHiddenAndSkipItemsForCurrentFrame(Window *window) {
+  window->Hidden = window->SkipItems = true;
+  window->HiddenFramesCanSkipItems = 1;
+}
+
 inline Rect WindowRectAbsToRel(Window *window, const Rect &r) {
   Vec2 off = window->DC.CursorStartPos;
   return Rect(r.Min.x - off.x, r.Min.y - off.y, r.Max.x - off.x,
@@ -11033,27 +11527,79 @@ GUI_API void UpdateMouseMovingWindowEndFrame();
 // Generic context hooks
 GUI_API ID AddContextHook(Context *context, const ContextHook *hook);
 GUI_API void RemoveContextHook(Context *context, ID hook_to_remove);
-GUI_API void CallContextHooks(Context *context, ContextHookType type);
+GUI_API inline void CallContextHooks(Context *ctx, ContextHookType hook_type) {
+  Context &g = *ctx;
+  for (ContextHook &hook : g.Hooks)
+    if (hook.Type == hook_type)
+      hook.Callback(&g, &hook);
+}
 
 // Viewports
-GUI_API void SetWindowViewport(Window *window, ViewportP *viewport);
+GUI_API inline void SetWindowViewport(Window *window, ViewportP *viewport) {
+  window->Viewport = viewport;
+}
 
 // Settings
-GUI_API void MarkIniSettingsDirty();
-GUI_API void MarkIniSettingsDirty(Window *window);
-GUI_API void ClearIniSettings();
+GUI_API inline void MarkIniSettingsDirty() {
+  Context &g = *GGui;
+  if (g.SettingsDirtyTimer <= 0.0f)
+    g.SettingsDirtyTimer = g.IO.IniSavingRate;
+}
+
+GUI_API inline void MarkIniSettingsDirty(Window *window) {
+  Context &g = *GGui;
+  if (!(window->Flags & WindowFlags_NoSavedSettings))
+    if (g.SettingsDirtyTimer <= 0.0f)
+      g.SettingsDirtyTimer = g.IO.IniSavingRate;
+}
+
+GUI_API inline void ClearIniSettings() {
+  Context &g = *GGui;
+  g.SettingsIniData.clear();
+  for (SettingsHandler &handler : g.SettingsHandlers)
+    if (handler.ClearAllFn != NULL)
+      handler.ClearAllFn(&g, &handler);
+}
+
 GUI_API void AddSettingsHandler(const SettingsHandler *handler);
 GUI_API void RemoveSettingsHandler(const char *type_name);
-GUI_API SettingsHandler *FindSettingsHandler(const char *type_name);
+GUI_API inline SettingsHandler *FindSettingsHandler(const char *type_name) {
+  Context &g = *GGui;
+  const ID type_hash = HashStr(type_name);
+  for (SettingsHandler &handler : g.SettingsHandlers)
+    if (handler.TypeHash == type_hash)
+      return &handler;
+  return NULL;
+}
 
 // Settings - Windows
 GUI_API WindowSettings *CreateNewWindowSettings(const char *name);
-GUI_API WindowSettings *FindWindowSettingsByID(ID id);
-GUI_API WindowSettings *FindWindowSettingsByWindow(Window *window);
+GUI_API inline WindowSettings *FindWindowSettingsByID(ID id) {
+  Context &g = *GGui;
+  for (WindowSettings *settings = g.SettingsWindows.begin(); settings != NULL;
+       settings = g.SettingsWindows.next_chunk(settings))
+    if (settings->ID == id && !settings->WantDelete)
+      return settings;
+  return NULL;
+}
+
+GUI_API inline WindowSettings *FindWindowSettingsByWindow(Window *window) {
+  Context &g = *GGui;
+  if (window->SettingsOffset != -1)
+    return g.SettingsWindows.ptr_from_offset(window->SettingsOffset);
+  return FindWindowSettingsByID(window->ID);
+}
+
 GUI_API void ClearWindowSettings(const char *name);
 
 // Localization
-GUI_API void LocalizeRegisterEntries(const LocEntry *entries, int count);
+GUI_API inline void LocalizeRegisterEntries(const LocEntry *entries,
+                                            int count) {
+  Context &g = *GGui;
+  for (int n = 0; n < count; n++)
+    g.LocalizationTable[entries[n].Key] = entries[n].Text;
+}
+
 inline const char *LocalizeGetMsg(LocKey key) {
   Context &g = *GGui;
   const char *msg = g.LocalizationTable[key];
@@ -11061,8 +11607,18 @@ inline const char *LocalizeGetMsg(LocKey key) {
 }
 
 // Scrolling
-GUI_API void SetScrollX(Window *window, float scroll_x);
-GUI_API void SetScrollY(Window *window, float scroll_y);
+GUI_API inline void SetScrollX(Window *window, float scroll_x) {
+  window->ScrollTarget.x = scroll_x;
+  window->ScrollTargetCenterRatio.x = 0.0f;
+  window->ScrollTargetEdgeSnapDist.x = 0.0f;
+}
+
+GUI_API inline void SetScrollY(Window *window, float scroll_y) {
+  window->ScrollTarget.y = scroll_y;
+  window->ScrollTargetCenterRatio.y = 0.0f;
+  window->ScrollTargetEdgeSnapDist.y = 0.0f;
+}
+
 GUI_API void SetScrollFromPosX(Window *window, float local_x,
                                float center_x_ratio);
 GUI_API void SetScrollFromPosY(Window *window, float local_y,
@@ -11135,7 +11691,60 @@ GUI_API ID GetIDWithSeed(const char *str_id_begin, const char *str_id_end,
 GUI_API ID GetIDWithSeed(int n, ID seed);
 
 // Basic Helpers for widget code
-GUI_API void ItemSize(const Vec2 &size, float text_baseline_y = -1.0f);
+GUI_API inline void ItemSize(const Vec2 &size, float text_baseline_y = -1.0f) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  if (window->SkipItems)
+    return;
+
+  // We increase the height in this function to accommodate for baseline offset.
+  // In theory we should be offsetting the starting position
+  // (window->DC.CursorPos), that will be the topic of a larger refactor, but
+  // since ItemSize() is not yet an API that moves the cursor (to handle e.g.
+  // wrapping) enlarging the height has the same effect.
+  const float offset_to_match_baseline_y =
+      (text_baseline_y >= 0)
+          ? Max(0.0f, window->DC.CurrLineTextBaseOffset - text_baseline_y)
+          : 0.0f;
+
+  const float line_y1 = window->DC.IsSameLine ? window->DC.CursorPosPrevLine.y
+                                              : window->DC.CursorPos.y;
+  const float line_height =
+      Max(window->DC.CurrLineSize.y, /*Max(*/ window->DC.CursorPos.y -
+                                         line_y1 /*, 0.0f)*/ + size.y +
+                                         offset_to_match_baseline_y);
+
+  // Always align ourselves on pixel boundaries
+  // if (g.IO.KeyAlt) window->DrawList->AddRect(window->DC.CursorPos,
+  // window->DC.CursorPos + Vec2(size.x, line_height),
+  // GUI_COL32(255,0,0,200));
+  // // [DEBUG]
+  window->DC.CursorPosPrevLine.x = window->DC.CursorPos.x + size.x;
+  window->DC.CursorPosPrevLine.y = line_y1;
+  window->DC.CursorPos.x = GUI_TRUNC(window->Pos.x + window->DC.Indent.x +
+                                     window->DC.ColumnsOffset.x); // Next line
+  window->DC.CursorPos.y =
+      GUI_TRUNC(line_y1 + line_height + g.Style.ItemSpacing.y); // Next line
+  window->DC.CursorMaxPos.x =
+      Max(window->DC.CursorMaxPos.x, window->DC.CursorPosPrevLine.x);
+  window->DC.CursorMaxPos.y =
+      Max(window->DC.CursorMaxPos.y,
+          window->DC.CursorPos.y - g.Style.ItemSpacing.y);
+  // if (g.IO.KeyAlt) window->DrawList->AddCircle(window->DC.CursorMaxPos, 3.0f,
+  // GUI_COL32(255,0,0,255), 4); // [DEBUG]
+
+  window->DC.PrevLineSize.y = line_height;
+  window->DC.CurrLineSize.y = 0.0f;
+  window->DC.PrevLineTextBaseOffset =
+      Max(window->DC.CurrLineTextBaseOffset, text_baseline_y);
+  window->DC.CurrLineTextBaseOffset = 0.0f;
+  window->DC.IsSameLine = window->DC.IsSetPos = false;
+
+  // Horizontal layout mode
+  if (window->DC.LayoutType == LayoutType_Horizontal)
+    SameLine();
+}
+
 inline void ItemSize(const Rect &bb, float text_baseline_y = -1.0f) {
   ItemSize(bb.GetSize(), text_baseline_y);
 } // FIXME: This is a misleading API since we expect CursorPos to be bb.Min.
@@ -11219,11 +11828,25 @@ GUI_API inline float CalcWrapWidthForPos(const Vec2 &pos, float wrap_pos_x) {
 }
 
 GUI_API void PushMultiItemsWidths(int components, float width_full);
-GUI_API bool IsItemToggledSelection(); // Was the last item selection toggled?
-                                       // (after Selectable(), TreeNode() etc.
-                                       // We only returns toggle _event_ in
-                                       // order to handle clipping correctly)
-GUI_API Vec2 GetContentRegionMaxAbs();
+GUI_API inline bool IsItemToggledSelection() {
+  Context &g = *GGui;
+  return (g.LastItemData.StatusFlags & ItemStatusFlags_ToggledSelection)
+             ? true
+             : false;
+}
+// Was the last item selection toggled?
+// (after Selectable(), TreeNode() etc.
+// We only returns toggle _event_ in
+// order to handle clipping correctly)
+GUI_API inline Vec2 GetContentRegionMaxAbs() {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Vec2 mx = (window->DC.CurrentColumns || g.CurrentTable)
+                ? window->WorkRect.Max
+                : window->ContentRegionRect.Max;
+  return mx;
+}
+
 GUI_API void ShrinkWidths(ShrinkWidthItem *items, int count,
                           float width_excess);
 
@@ -11237,11 +11860,21 @@ GUI_API void LogBegin(
     LogType type,
     int auto_open_depth); // -> BeginCapture() when we design v2 api, for now
                           // stay under the radar by using the old name.
-GUI_API void LogToBuffer(
-    int auto_open_depth = -1); // Start logging/capturing to internal buffer
+GUI_API inline void LogToBuffer(int auto_open_depth = -1) {
+  Context &g = *GGui;
+  if (g.LogEnabled)
+    return;
+  LogBegin(LogType_Buffer, auto_open_depth);
+}
+// Start logging/capturing to internal buffer
 GUI_API void LogRenderedText(const Vec2 *ref_pos, const char *text,
                              const char *text_end = NULL);
-GUI_API void LogSetNextTextDecoration(const char *prefix, const char *suffix);
+GUI_API inline void LogSetNextTextDecoration(const char *prefix,
+                                             const char *suffix) {
+  Context &g = *GGui;
+  g.LogNextPrefix = prefix;
+  g.LogNextSuffix = suffix;
+}
 
 // Popups, Modals, Tooltips
 GUI_API bool BeginChildEx(const char *name, ID id, const Vec2 &size_arg,
@@ -11251,14 +11884,82 @@ GUI_API void ClosePopupToLevel(int remaining,
                                bool restore_focus_to_window_under_popup);
 GUI_API void ClosePopupsOverWindow(Window *ref_window,
                                    bool restore_focus_to_window_under_popup);
-GUI_API void ClosePopupsExceptModals();
+GUI_API inline void ClosePopupsExceptModals() {
+  Context &g = *GGui;
+
+  int popup_count_to_keep;
+  for (popup_count_to_keep = g.OpenPopupStack.Size; popup_count_to_keep > 0;
+       popup_count_to_keep--) {
+    Window *window = g.OpenPopupStack[popup_count_to_keep - 1].Window;
+    if (!window || (window->Flags & WindowFlags_Modal))
+      break;
+  }
+  if (popup_count_to_keep <
+      g.OpenPopupStack.Size) // This test is not required but it allows to set a
+                             // convenient breakpoint on the statement below
+    ClosePopupToLevel(popup_count_to_keep, true);
+}
+
 GUI_API bool IsPopupOpen(ID id, PopupFlags popup_flags);
-GUI_API bool BeginPopupEx(ID id, WindowFlags extra_flags);
+GUI_API inline bool BeginPopupEx(ID id, WindowFlags flags) {
+  Context &g = *GGui;
+  if (!IsPopupOpen(id, PopupFlags_None)) {
+    g.NextWindowData.ClearFlags(); // We behave like Begin() and need to consume
+                                   // those values
+    return false;
+  }
+
+  char name[20];
+  if (flags & WindowFlags_ChildMenu)
+    FormatString(name, GUI_ARRAYSIZE(name), "##Menu_%02d",
+                 g.BeginMenuCount); // Recycle windows based on depth
+  else
+    FormatString(
+        name, GUI_ARRAYSIZE(name), "##Popup_%08x",
+        id); // Not recycling, so we can close/open during the same frame
+
+  flags |= WindowFlags_Popup;
+  bool is_open = Begin(name, NULL, flags);
+  if (!is_open) // NB: Begin can return false when the popup is completely
+                // clipped (e.g. zero size display)
+    EndPopup();
+
+  return is_open;
+}
+
 GUI_API bool BeginTooltipEx(TooltipFlags tooltip_flags,
                             WindowFlags extra_window_flags);
-GUI_API bool BeginTooltipHidden();
-GUI_API Rect GetPopupAllowedExtentRect(Window *window);
-GUI_API Window *GetTopMostPopupModal();
+GUI_API inline bool BeginTooltipHidden() {
+  Context &g = *GGui;
+  bool ret = Begin("##Tooltip_Hidden", NULL,
+                   WindowFlags_Tooltip | WindowFlags_NoInputs |
+                       WindowFlags_NoTitleBar | WindowFlags_NoMove |
+                       WindowFlags_NoResize | WindowFlags_NoSavedSettings |
+                       WindowFlags_AlwaysAutoResize);
+  SetWindowHiddenAndSkipItemsForCurrentFrame(g.CurrentWindow);
+  return ret;
+}
+
+GUI_API inline Rect GetPopupAllowedExtentRect(Window *window) {
+  Context &g = *GGui;
+  GUI_UNUSED(window);
+  Rect r_screen = ((ViewportP *)(void *)GetMainViewport())->GetMainRect();
+  Vec2 padding = g.Style.DisplaySafeAreaPadding;
+  r_screen.Expand(
+      Vec2((r_screen.GetWidth() > padding.x * 2) ? -padding.x : 0.0f,
+           (r_screen.GetHeight() > padding.y * 2) ? -padding.y : 0.0f));
+  return r_screen;
+}
+
+GUI_API inline Window *GetTopMostPopupModal() {
+  Context &g = *GGui;
+  for (int n = g.OpenPopupStack.Size - 1; n >= 0; n--)
+    if (Window *popup = g.OpenPopupStack.Data[n].Window)
+      if (popup->Flags & WindowFlags_Modal)
+        return popup;
+  return NULL;
+}
+
 GUI_API Window *GetTopMostAndVisiblePopupModal();
 GUI_API inline Window *FindBlockingModal(Window *window) {
   Context &g = *GGui;
@@ -11306,12 +12007,45 @@ GUI_API bool MenuItemEx(const char *label, const char *icon,
 // Combos
 GUI_API bool BeginComboPopup(ID popup_id, const Rect &bb, ComboFlags flags);
 GUI_API bool BeginComboPreview();
-GUI_API void EndComboPreview();
+GUI_API inline void EndComboPreview() {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  ComboPreviewData *preview_data = &g.ComboPreviewData;
+
+  // FIXME: Using CursorMaxPos approximation instead of correct AABB which we
+  // will store in DrawCmd in the future
+  DrawList *draw_list = window->DrawList;
+  if (window->DC.CursorMaxPos.x < preview_data->PreviewRect.Max.x &&
+      window->DC.CursorMaxPos.y < preview_data->PreviewRect.Max.y)
+    if (draw_list->CmdBuffer.Size >
+        1) // Unlikely case that the PushClipRect() didn't create a command
+    {
+      draw_list->_CmdHeader.ClipRect =
+          draw_list->CmdBuffer[draw_list->CmdBuffer.Size - 1].ClipRect =
+              draw_list->CmdBuffer[draw_list->CmdBuffer.Size - 2].ClipRect;
+      draw_list->_TryMergeDrawCmds();
+    }
+  PopClipRect();
+  window->DC.CursorPos = preview_data->BackupCursorPos;
+  window->DC.CursorMaxPos =
+      Max(window->DC.CursorMaxPos, preview_data->BackupCursorMaxPos);
+  window->DC.CursorPosPrevLine = preview_data->BackupCursorPosPrevLine;
+  window->DC.PrevLineTextBaseOffset =
+      preview_data->BackupPrevLineTextBaseOffset;
+  window->DC.LayoutType = preview_data->BackupLayout;
+  window->DC.IsSameLine = false;
+  preview_data->PreviewRect = Rect();
+}
 
 // Gamepad/Keyboard Navigation
 GUI_API void NavInitWindow(Window *window, bool force_reinit);
 GUI_API void NavInitRequestApplyResult();
-GUI_API bool NavMoveRequestButNoResultYet();
+GUI_API inline bool NavMoveRequestButNoResultYet() {
+  Context &g = *GGui;
+  return g.NavMoveScoringItems && g.NavMoveResultLocal.ID == 0 &&
+         g.NavMoveResultOther.ID == 0;
+}
+
 GUI_API void NavMoveRequestSubmit(Dir move_dir, Dir clip_dir,
                                   NavMoveFlags move_flags,
                                   ScrollFlags scroll_flags);
@@ -11325,9 +12059,25 @@ NavMoveRequestResolveWithPastTreeNode(NavItemData *result,
 GUI_API void NavMoveRequestCancel();
 GUI_API void NavMoveRequestApplyResult();
 GUI_API void NavMoveRequestTryWrapping(Window *window, NavMoveFlags move_flags);
-GUI_API void NavClearPreferredPosForAxis(Axis axis);
-GUI_API void NavRestoreHighlightAfterMove();
-GUI_API void NavUpdateCurrentWindowIsScrollPushableX();
+GUI_API inline void NavClearPreferredPosForAxis(Axis axis) {
+  Context &g = *GGui;
+  g.NavWindow->RootWindowForNav->NavPreferredScoringPosRel[g.NavLayer][axis] =
+      FLT_MAX;
+}
+
+GUI_API inline void NavRestoreHighlightAfterMove() {
+  Context &g = *GGui;
+  g.NavDisableHighlight = false;
+  g.NavDisableMouseHover = g.NavMousePosDirty = true;
+}
+
+GUI_API inline void NavUpdateCurrentWindowIsScrollPushableX() {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  window->DC.NavIsScrollPushableX =
+      (g.CurrentTable == NULL && window->DC.CurrentColumns == NULL);
+}
+
 GUI_API void SetNavWindow(Window *window);
 GUI_API void SetNavID(ID id, NavLayer nav_layer, ID focus_scope_id,
                       const Rect &rect_rel);
@@ -11339,10 +12089,14 @@ GUI_API void SetNavID(ID id, NavLayer nav_layer, ID focus_scope_id,
 // private branches on this matter but it's not simple. For now implementing the
 // easy ones.
 GUI_API void FocusItem(); // Focus last item (no selection/activation).
-GUI_API void
-ActivateItemByID(ID id); // Activate an item by ID (button, checkbox, tree node
-                         // etc.). Activation is queued and processed on the
-                         // next frame when the item is encountered again.
+GUI_API inline void ActivateItemByID(ID id) {
+  Context &g = *GGui;
+  g.NavNextActivateId = id;
+  g.NavNextActivateFlags = ActivateFlags_None;
+}
+// Activate an item by ID (button, checkbox, tree node
+// etc.). Activation is queued and processed on the
+// next frame when the item is encountered again.
 
 // Inputs
 // FIXME: Eventually we should aim to move e.g. IsActiveIdUsingKey() into
@@ -11405,14 +12159,61 @@ inline Key MouseButtonToKey(MouseButton button) {
 }
 GUI_API bool IsMouseDragPastThreshold(MouseButton button,
                                       float lock_threshold = -1.0f);
-GUI_API Vec2 GetKeyMagnitude2d(Key key_left, Key key_right, Key key_up,
-                               Key key_down);
+GUI_API inline Vec2 GetKeyMagnitude2d(Key key_left, Key key_right, Key key_up,
+                                      Key key_down) {
+  return Vec2(
+      GetKeyData(key_right)->AnalogValue - GetKeyData(key_left)->AnalogValue,
+      GetKeyData(key_down)->AnalogValue - GetKeyData(key_up)->AnalogValue);
+}
+
 GUI_API float GetNavTweakPressedAmount(Axis axis);
-GUI_API int CalcTypematicRepeatAmount(float t0, float t1, float repeat_delay,
-                                      float repeat_rate);
-GUI_API void GetTypematicRepeatRate(InputFlags flags, float *repeat_delay,
-                                    float *repeat_rate);
-GUI_API void TeleportMousePos(const Vec2 &pos);
+GUI_API inline int CalcTypematicRepeatAmount(float t0, float t1,
+                                             float repeat_delay,
+                                             float repeat_rate) {
+  if (t1 == 0.0f)
+    return 1;
+  if (t0 >= t1)
+    return 0;
+  if (repeat_rate <= 0.0f)
+    return (t0 < repeat_delay) && (t1 >= repeat_delay);
+  const int count_t0 =
+      (t0 < repeat_delay) ? -1 : (int)((t0 - repeat_delay) / repeat_rate);
+  const int count_t1 =
+      (t1 < repeat_delay) ? -1 : (int)((t1 - repeat_delay) / repeat_rate);
+  const int count = count_t1 - count_t0;
+  return count;
+}
+
+GUI_API inline void GetTypematicRepeatRate(InputFlags flags,
+                                           float *repeat_delay,
+                                           float *repeat_rate) {
+  Context &g = *GGui;
+  switch (flags & InputFlags_RepeatRateMask_) {
+  case InputFlags_RepeatRateNavMove:
+    *repeat_delay = g.IO.KeyRepeatDelay * 0.72f;
+    *repeat_rate = g.IO.KeyRepeatRate * 0.80f;
+    return;
+  case InputFlags_RepeatRateNavTweak:
+    *repeat_delay = g.IO.KeyRepeatDelay * 0.72f;
+    *repeat_rate = g.IO.KeyRepeatRate * 0.30f;
+    return;
+  case InputFlags_RepeatRateDefault:
+  default:
+    *repeat_delay = g.IO.KeyRepeatDelay * 1.00f;
+    *repeat_rate = g.IO.KeyRepeatRate * 1.00f;
+    return;
+  }
+}
+
+GUI_API inline void TeleportMousePos(const Vec2 &pos) {
+  Context &g = *GGui;
+  g.IO.MousePos = g.IO.MousePosPrev = pos;
+  g.IO.MouseDelta = Vec2(0.0f, 0.0f);
+  g.IO.WantSetMousePos = true;
+  // GUI_DEBUG_LOG_IO("TeleportMousePos: (%.1f,%.1f)\n", io.MousePos.x,
+  // io.MousePos.y);
+}
+
 GUI_API void SetActiveIdUsingAllKeyboardKeys();
 inline bool IsActiveIdUsingNavDir(Dir dir) {
   Context &g = *GGui;
@@ -11444,8 +12245,28 @@ inline bool IsActiveIdUsingNavDir(Dir dir) {
 //   use case you need solved.
 GUI_API ID GetKeyOwner(Key key);
 GUI_API void SetKeyOwner(Key key, ID owner_id, InputFlags flags = 0);
-GUI_API void SetKeyOwnersForKeyChord(KeyChord key, ID owner_id,
-                                     InputFlags flags = 0);
+GUI_API inline void SetKeyOwnersForKeyChord(KeyChord key_chord, ID owner_id,
+                                            InputFlags flags = 0) {
+  if (key_chord & Mod_Ctrl) {
+    SetKeyOwner(Mod_Ctrl, owner_id, flags);
+  }
+  if (key_chord & Mod_Shift) {
+    SetKeyOwner(Mod_Shift, owner_id, flags);
+  }
+  if (key_chord & Mod_Alt) {
+    SetKeyOwner(Mod_Alt, owner_id, flags);
+  }
+  if (key_chord & Mod_Super) {
+    SetKeyOwner(Mod_Super, owner_id, flags);
+  }
+  if (key_chord & Mod_Shortcut) {
+    SetKeyOwner(Mod_Shortcut, owner_id, flags);
+  }
+  if (key_chord & ~Mod_Mask_) {
+    SetKeyOwner((Key)(key_chord & ~Mod_Mask_), owner_id, flags);
+  }
+}
+
 GUI_API void SetItemKeyOwner(
     Key key,
     InputFlags flags = 0); // Set key owner to last item if it is hovered or
@@ -11474,14 +12295,30 @@ inline KeyOwnerData *GetKeyOwnerData(Context *ctx, Key key) {
 //   InputFlags_LockThisFrame or InputFlags_LockUntilRelease.
 // - Binding generators may want to ignore those for now, or suffix them with
 // Ex() until we decide if this gets moved into public API.
-GUI_API bool IsKeyDown(Key key, ID owner_id);
+GUI_API inline bool IsKeyDown(Key key, ID owner_id) {
+  const KeyData *key_data = GetKeyData(key);
+  if (!key_data->Down)
+    return false;
+  if (!TestKeyOwner(key, owner_id))
+    return false;
+  return true;
+}
+
 GUI_API bool IsKeyPressed(
     Key key, ID owner_id,
     InputFlags flags =
         0); // Important: when transitioning from old to new IsKeyPressed(): old
             // API has "bool repeat = true", so would default to repeat. New API
             // requiress explicit InputFlags_Repeat.
-GUI_API bool IsKeyReleased(Key key, ID owner_id);
+GUI_API inline bool IsKeyReleased(Key key, ID owner_id) {
+  const KeyData *key_data = GetKeyData(key);
+  if (key_data->DownDurationPrev < 0.0f || key_data->Down)
+    return false;
+  if (!TestKeyOwner(key, owner_id))
+    return false;
+  return true;
+}
+
 GUI_API bool IsMouseDown(MouseButton button, ID owner_id);
 GUI_API bool IsMouseClicked(MouseButton button, ID owner_id,
                             InputFlags flags = 0);
@@ -11512,8 +12349,26 @@ GUI_API bool IsMouseDoubleClicked(MouseButton button, ID owner_id);
 //   no side-effect.
 //   - Shortcut() submits a route then if currently can be routed calls
 //   IsKeyChordPressed() -> function has (desirable) side-effects.
-GUI_API bool IsKeyChordPressed(KeyChord key_chord, ID owner_id,
-                               InputFlags flags = 0);
+GUI_API inline bool IsKeyChordPressed(KeyChord key_chord, ID owner_id,
+                                      InputFlags flags = 0) {
+  Context &g = *GGui;
+  if (key_chord & Mod_Shortcut)
+    key_chord = ConvertShortcutMod(key_chord);
+  Key mods = (Key)(key_chord & Mod_Mask_);
+  if (g.IO.KeyMods != mods)
+    return false;
+
+  // Special storage location for mods
+  Key key = (Key)(key_chord & ~Mod_Mask_);
+  if (key == Key_None)
+    key = ConvertSingleModFlagToKey(&g, mods);
+  if (!IsKeyPressed(key, owner_id,
+                    (flags & (InputFlags_Repeat |
+                              (InputFlags)InputFlags_RepeatRateMask_))))
+    return false;
+  return true;
+}
+
 GUI_API bool Shortcut(KeyChord key_chord, ID owner_id = 0,
                       InputFlags flags = 0);
 GUI_API bool SetShortcutRouting(KeyChord key_chord, ID owner_id = 0,
@@ -11533,7 +12388,12 @@ GUI_API KeyRoutingData *GetShortcutRoutingData(KeyChord key_chord);
 // - Shortcut routing also use focus scope as a default location identifier if
 // an owner is not provided. We don't use the ID Stack for this as it is common
 // to want them separate.
-GUI_API void PushFocusScope(ID id);
+GUI_API inline void PushFocusScope(ID id) {
+  Context &g = *GGui;
+  g.FocusScopeStack.push_back(id);
+  g.CurrentFocusScopeId = id;
+}
+
 GUI_API void PopFocusScope();
 inline ID GetCurrentFocusScope() {
   Context &g = *GGui;
@@ -11541,12 +12401,35 @@ inline ID GetCurrentFocusScope() {
 } // Focus scope we are outputting into, set by PushFocusScope()
 
 // Drag and Drop
-GUI_API bool IsDragDropActive();
+GUI_API inline bool IsDragDropActive() {
+  Context &g = *GGui;
+  return g.DragDropActive;
+}
+
 GUI_API bool BeginDragDropTargetCustom(const Rect &bb, ID id);
 GUI_API void ClearDragDrop();
-GUI_API bool IsDragDropPayloadBeingAccepted();
-GUI_API void RenderDragDropTargetRect(const Rect &bb,
-                                      const Rect &item_clip_rect);
+GUI_API inline bool IsDragDropPayloadBeingAccepted() {
+  Context &g = *GGui;
+  return g.DragDropActive && g.DragDropAcceptIdPrev != 0;
+}
+
+GUI_API inline void RenderDragDropTargetRect(const Rect &bb,
+                                             const Rect &item_clip_rect) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Rect bb_display = bb;
+  bb_display.ClipWith(
+      item_clip_rect); // Clip THEN expand so we have a way to visualize that
+                       // target is not entirely visible.
+  bb_display.Expand(3.5f);
+  bool push_clip_rect = !window->ClipRect.Contains(bb_display);
+  if (push_clip_rect)
+    window->DrawList->PushClipRectFullScreen();
+  window->DrawList->AddRect(bb_display.Min, bb_display.Max,
+                            GetColorU32(Col_DragDropTarget), 0.0f, 0, 2.0f);
+  if (push_clip_rect)
+    window->DrawList->PopClipRect();
+}
 
 // Typing-Select API
 GUI_API TypingSelectRequest *
@@ -11566,22 +12449,90 @@ TypingSelectFindBestLeadingMatch(TypingSelectRequest *req, int items_count,
 
 // Internal Columns API (this is not exposed because we will encourage
 // transitioning to the Tables API)
-GUI_API void SetWindowClipRectBeforeSetChannel(Window *window,
-                                               const Rect &clip_rect);
+GUI_API inline void SetWindowClipRectBeforeSetChannel(Window *window,
+                                                      const Rect &clip_rect) {
+  Vec4 clip_rect_vec4 = clip_rect.ToVec4();
+  window->ClipRect = clip_rect;
+  window->DrawList->_CmdHeader.ClipRect = clip_rect_vec4;
+  window->DrawList->_ClipRectStack
+      .Data[window->DrawList->_ClipRectStack.Size - 1] = clip_rect_vec4;
+}
+
 GUI_API void BeginColumns(
     const char *str_id, int count,
     OldColumnFlags flags =
         0); // setup number of columns. use an identifier to distinguish
             // multiple column sets. close with EndColumns().
 GUI_API void EndColumns(); // close columns
-GUI_API void PushColumnClipRect(int column_index);
-GUI_API void PushColumnsBackground();
-GUI_API void PopColumnsBackground();
-GUI_API ID GetColumnsID(const char *str_id, int count);
-GUI_API OldColumns *FindOrCreateColumns(Window *window, ID id);
-GUI_API float GetColumnOffsetFromNorm(const OldColumns *columns,
-                                      float offset_norm);
-GUI_API float GetColumnNormFromOffset(const OldColumns *columns, float offset);
+GUI_API inline void PushColumnClipRect(int column_index) {
+  Window *window = GetCurrentWindowRead();
+  OldColumns *columns = window->DC.CurrentColumns;
+  if (column_index < 0)
+    column_index = columns->Current;
+
+  OldColumnData *column = &columns->Columns[column_index];
+  PushClipRect(column->ClipRect.Min, column->ClipRect.Max, false);
+}
+
+GUI_API inline void PushColumnsBackground() {
+  Window *window = GetCurrentWindowRead();
+  OldColumns *columns = window->DC.CurrentColumns;
+  if (columns->Count == 1)
+    return;
+
+  // Optimization: avoid SetCurrentChannel() + PushClipRect()
+  columns->HostBackupClipRect = window->ClipRect;
+  SetWindowClipRectBeforeSetChannel(window, columns->HostInitialClipRect);
+  columns->Splitter.SetCurrentChannel(window->DrawList, 0);
+}
+
+GUI_API inline void PopColumnsBackground() {
+  Window *window = GetCurrentWindowRead();
+  OldColumns *columns = window->DC.CurrentColumns;
+  if (columns->Count == 1)
+    return;
+
+  // Optimization: avoid PopClipRect() + SetCurrentChannel()
+  SetWindowClipRectBeforeSetChannel(window, columns->HostBackupClipRect);
+  columns->Splitter.SetCurrentChannel(window->DrawList, columns->Current + 1);
+}
+
+GUI_API inline ID GetColumnsID(const char *str_id, int columns_count) {
+  Window *window = GetCurrentWindow();
+
+  // Differentiate column ID with an arbitrary prefix for cases where users name
+  // their columns set the same as another widget. In addition, when an
+  // identifier isn't explicitly provided we include the number of columns in
+  // the hash to make it uniquer.
+  PushID(0x11223347 + (str_id ? 0 : columns_count));
+  ID id = window->GetID(str_id ? str_id : "columns");
+  PopID();
+
+  return id;
+}
+
+GUI_API inline OldColumns *FindOrCreateColumns(Window *window, ID id) {
+  // We have few columns per window so for now we don't need bother much with
+  // turning this into a faster lookup.
+  for (int n = 0; n < window->ColumnsStorage.Size; n++)
+    if (window->ColumnsStorage[n].ID == id)
+      return &window->ColumnsStorage[n];
+
+  window->ColumnsStorage.push_back(OldColumns());
+  OldColumns *columns = &window->ColumnsStorage.back();
+  columns->ID = id;
+  return columns;
+}
+
+GUI_API inline float GetColumnOffsetFromNorm(const OldColumns *columns,
+                                             float offset_norm) {
+  return offset_norm * (columns->OffMaxX - columns->OffMinX);
+}
+
+GUI_API inline float GetColumnNormFromOffset(const OldColumns *columns,
+                                             float offset) {
+  return offset / (columns->OffMaxX - columns->OffMinX);
+}
 
 // Tables: Candidates for public API
 GUI_API void TableOpenContextMenu(int column_n = -1);
@@ -11589,19 +12540,47 @@ GUI_API void TableSetColumnWidth(int column_n, float width);
 GUI_API void TableSetColumnSortDirection(int column_n,
                                          SortDirection sort_direction,
                                          bool append_to_sort_specs);
-GUI_API int
-TableGetHoveredColumn(); // May use (TableGetColumnFlags() &
-                         // TableColumnFlags_IsHovered) instead. Return
-                         // hovered column. return -1 when table is not hovered.
-                         // return columns_count if the unused space at the
-                         // right of visible columns is hovered.
+GUI_API inline int TableGetHoveredColumn() {
+  Context &g = *GGui;
+  Table *table = g.CurrentTable;
+  if (!table)
+    return -1;
+  return (int)table->HoveredColumnBody;
+}
+// May use (TableGetColumnFlags() &
+// TableColumnFlags_IsHovered) instead. Return
+// hovered column. return -1 when table is not hovered.
+// return columns_count if the unused space at the
+// right of visible columns is hovered.
 GUI_API int TableGetHoveredRow(); // Retrieve *PREVIOUS FRAME* hovered row. This
                                   // difference with TableGetHoveredColumn() is
                                   // the reason why this is not public yet.
 GUI_API float TableGetHeaderRowHeight();
 GUI_API float TableGetHeaderAngledMaxLabelWidth();
-GUI_API void TablePushBackgroundChannel();
-GUI_API void TablePopBackgroundChannel();
+GUI_API inline void TablePushBackgroundChannel() {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Table *table = g.CurrentTable;
+
+  // Optimization: avoid SetCurrentChannel() + PushClipRect()
+  table->HostBackupInnerClipRect = window->ClipRect;
+  SetWindowClipRectBeforeSetChannel(window, table->Bg2ClipRectForDrawCmd);
+  table->DrawSplitter->SetCurrentChannel(window->DrawList,
+                                         table->Bg2DrawChannelCurrent);
+}
+
+GUI_API inline void TablePopBackgroundChannel() {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Table *table = g.CurrentTable;
+  TableColumn *column = &table->Columns[table->CurrentColumn];
+
+  // Optimization: avoid PopClipRect() + SetCurrentChannel()
+  SetWindowClipRectBeforeSetChannel(window, table->HostBackupInnerClipRect);
+  table->DrawSplitter->SetCurrentChannel(window->DrawList,
+                                         column->DrawChannelCurrent);
+}
+
 GUI_API void TableAngledHeadersRowEx(float angle, float label_width = 0.0f);
 
 // Tables: Internals
@@ -11609,7 +12588,11 @@ inline Table *GetCurrentTable() {
   Context &g = *GGui;
   return g.CurrentTable;
 }
-GUI_API Table *TableFindByID(ID id);
+GUI_API inline Table *TableFindByID(ID id) {
+  Context &g = *GGui;
+  return g.Tables.GetByKey(id);
+}
+
 GUI_API bool BeginTableEx(const char *name, ID id, int columns_count,
                           TableFlags flags = 0,
                           const Vec2 &outer_size = Vec2(0, 0),
@@ -11624,7 +12607,19 @@ GUI_API void TableDrawBorders(Table *table);
 GUI_API void
 TableDrawDefaultContextMenu(Table *table,
                             TableFlags flags_for_section_to_display);
-GUI_API bool TableBeginContextMenuPopup(Table *table);
+GUI_API inline bool TableBeginContextMenuPopup(Table *table) {
+  if (!table->IsContextPopupOpen ||
+      table->InstanceCurrent != table->InstanceInteracted)
+    return false;
+  const ID context_menu_id = HashStr("##ContextMenu", 0, table->ID);
+  if (BeginPopupEx(context_menu_id, WindowFlags_AlwaysAutoResize |
+                                        WindowFlags_NoTitleBar |
+                                        WindowFlags_NoSavedSettings))
+    return true;
+  table->IsContextPopupOpen = false;
+  return false;
+}
+
 GUI_API void TableMergeDrawChannels(Table *table);
 inline TableInstanceData *TableGetInstanceData(Table *table, int instance_no) {
   if (instance_no == 0)
@@ -11638,31 +12633,159 @@ GUI_API void TableSortSpecsSanitize(Table *table);
 GUI_API void TableSortSpecsBuild(Table *table);
 GUI_API SortDirection TableGetColumnNextSortDirection(TableColumn *column);
 GUI_API void TableFixColumnSortDirection(Table *table, TableColumn *column);
-GUI_API float TableGetColumnWidthAuto(Table *table, TableColumn *column);
+GUI_API inline float TableGetColumnWidthAuto(Table *table,
+                                             TableColumn *column) {
+  const float content_width_body =
+      Max(column->ContentMaxXFrozen, column->ContentMaxXUnfrozen) -
+      column->WorkMinX;
+  const float content_width_headers =
+      column->ContentMaxXHeadersIdeal - column->WorkMinX;
+  float width_auto = content_width_body;
+  if (!(column->Flags & TableColumnFlags_NoHeaderWidth))
+    width_auto = Max(width_auto, content_width_headers);
+
+  // Non-resizable fixed columns preserve their requested width
+  if ((column->Flags & TableColumnFlags_WidthFixed) &&
+      column->InitStretchWeightOrWidth > 0.0f)
+    if (!(table->Flags & TableFlags_Resizable) ||
+        (column->Flags & TableColumnFlags_NoResize))
+      width_auto = column->InitStretchWeightOrWidth;
+
+  return Max(width_auto, table->MinColumnWidth);
+}
+
 GUI_API void TableBeginRow(Table *table);
 GUI_API void TableEndRow(Table *table);
 GUI_API void TableBeginCell(Table *table, int column_n);
 GUI_API void TableEndCell(Table *table);
-GUI_API Rect TableGetCellBgRect(const Table *table, int column_n);
-GUI_API const char *TableGetColumnName(const Table *table, int column_n);
+GUI_API inline Rect TableGetCellBgRect(const Table *table, int column_n) {
+  const TableColumn *column = &table->Columns[column_n];
+  float x1 = column->MinX;
+  float x2 = column->MaxX;
+  // if (column->PrevEnabledColumn == -1)
+  //     x1 -= table->OuterPaddingX;
+  // if (column->NextEnabledColumn == -1)
+  //     x2 += table->OuterPaddingX;
+  x1 = Max(x1, table->WorkRect.Min.x);
+  x2 = Min(x2, table->WorkRect.Max.x);
+  return Rect(x1, table->RowPosY1, x2, table->RowPosY2);
+}
+
+GUI_API inline const char *TableGetColumnName(const Table *table,
+                                              int column_n) {
+  if (table->IsLayoutLocked == false && column_n >= table->DeclColumnsCount)
+    return ""; // NameOffset is invalid at this point
+  const TableColumn *column = &table->Columns[column_n];
+  if (column->NameOffset == -1)
+    return "";
+  return &table->ColumnsNames.Buf[column->NameOffset];
+}
+
 GUI_API ID TableGetColumnResizeID(Table *table, int column_n,
                                   int instance_no = 0);
-GUI_API float TableGetMaxColumnWidth(const Table *table, int column_n);
-GUI_API void TableSetColumnWidthAutoSingle(Table *table, int column_n);
-GUI_API void TableSetColumnWidthAutoAll(Table *table);
-GUI_API void TableRemove(Table *table);
+GUI_API inline float TableGetMaxColumnWidth(const Table *table, int column_n) {
+  const TableColumn *column = &table->Columns[column_n];
+  float max_width = FLT_MAX;
+  const float min_column_distance = table->MinColumnWidth +
+                                    table->CellPaddingX * 2.0f +
+                                    table->CellSpacingX1 + table->CellSpacingX2;
+  if (table->Flags & TableFlags_ScrollX) {
+    // Frozen columns can't reach beyond visible width else scrolling will
+    // naturally break. (we use DisplayOrder as within a set of multiple frozen
+    // column reordering is possible)
+    if (column->DisplayOrder < table->FreezeColumnsRequest) {
+      max_width = (table->InnerClipRect.Max.x -
+                   (table->FreezeColumnsRequest - column->DisplayOrder) *
+                       min_column_distance) -
+                  column->MinX;
+      max_width = max_width - table->OuterPaddingX - table->CellPaddingX -
+                  table->CellSpacingX2;
+    }
+  } else if ((table->Flags & TableFlags_NoKeepColumnsVisible) == 0) {
+    // If horizontal scrolling if disabled, we apply a final lossless shrinking
+    // of columns in order to make sure they are all visible. Because of this we
+    // also know that all of the columns will always fit in table->WorkRect and
+    // therefore in table->InnerRect (because ScrollX is off)
+    // FIXME-TABLE: This is solved incorrectly but also quite a difficult
+    // problem to fix as we also want ClipRect width to match. See
+    // "table_width_distrib" and "table_width_keep_visible" tests
+    max_width =
+        table->WorkRect.Max.x -
+        (table->ColumnsEnabledCount - column->IndexWithinEnabledSet - 1) *
+            min_column_distance -
+        column->MinX;
+    // max_width -= table->CellSpacingX1;
+    max_width -= table->CellSpacingX2;
+    max_width -= table->CellPaddingX * 2.0f;
+    max_width -= table->OuterPaddingX;
+  }
+  return max_width;
+}
+
+GUI_API inline void TableSetColumnWidthAutoSingle(Table *table, int column_n) {
+  // Single auto width uses auto-fit
+  TableColumn *column = &table->Columns[column_n];
+  if (!column->IsEnabled)
+    return;
+  column->CannotSkipItemsQueue = (1 << 0);
+  table->AutoFitSingleColumn = (TableColumnIdx)column_n;
+}
+
+GUI_API inline void TableSetColumnWidthAutoAll(Table *table) {
+  for (int column_n = 0; column_n < table->ColumnsCount; column_n++) {
+    TableColumn *column = &table->Columns[column_n];
+    if (!column->IsEnabled &&
+        !(column->Flags &
+          TableColumnFlags_WidthStretch)) // Cannot reset weight of hidden
+                                          // stretch column
+      continue;
+    column->CannotSkipItemsQueue = (1 << 0);
+    column->AutoFitQueue = (1 << 1);
+  }
+}
+
+GUI_API inline void TableRemove(Table *table) {
+  // GUI_DEBUG_PRINT("TableRemove() id=0x%08X\n", table->ID);
+  Context &g = *GGui;
+  int table_idx = g.Tables.GetIndex(table);
+  // memset(table->RawData.Data, 0, table->RawData.size_in_bytes());
+  // memset(table, 0, sizeof(Table));
+  g.Tables.Remove(table->ID, table);
+  g.TablesLastTimeActive[table_idx] = -1.0f;
+}
+
 GUI_API void TableGcCompactTransientBuffers(Table *table);
-GUI_API void TableGcCompactTransientBuffers(TableTempData *table);
+GUI_API inline void TableGcCompactTransientBuffers(TableTempData *temp_data) {
+  temp_data->DrawSplitter.ClearFreeMemory();
+  temp_data->LastTimeActive = -1.0f;
+}
+
 GUI_API void TableGcCompactSettings();
 
 // Tables: Settings
 GUI_API void TableLoadSettings(Table *table);
 GUI_API void TableSaveSettings(Table *table);
-GUI_API void TableResetSettings(Table *table);
+GUI_API inline void TableResetSettings(Table *table) {
+  table->IsInitializing = table->IsSettingsDirty = true;
+  table->IsResetAllRequest = false;
+  table->IsSettingsRequestLoad = false; // Don't reload from ini
+  table->SettingsLoadedFlags =
+      TableFlags_None; // Mark as nothing loaded so our initialized data
+                       // becomes authoritative
+}
+
 GUI_API TableSettings *TableGetBoundSettings(Table *table);
 GUI_API void TableSettingsAddSettingsHandler();
 GUI_API TableSettings *TableSettingsCreate(ID id, int columns_count);
-GUI_API TableSettings *TableSettingsFindByID(ID id);
+GUI_API inline TableSettings *TableSettingsFindByID(ID id) {
+  // FIXME-OPT: Might want to store a lookup map for this?
+  Context &g = *GGui;
+  for (TableSettings *settings = g.SettingsTables.begin(); settings != NULL;
+       settings = g.SettingsTables.next_chunk(settings))
+    if (settings->ID == id)
+      return settings;
+  return NULL;
+}
 
 // Tab Bars
 inline TabBar *GetCurrentTabBar() {
@@ -11670,16 +12793,50 @@ inline TabBar *GetCurrentTabBar() {
   return g.CurrentTabBar;
 }
 GUI_API bool BeginTabBarEx(TabBar *tab_bar, const Rect &bb, TabBarFlags flags);
-GUI_API TabItem *TabBarFindTabByID(TabBar *tab_bar, ID tab_id);
-GUI_API TabItem *TabBarFindTabByOrder(TabBar *tab_bar, int order);
-GUI_API TabItem *TabBarGetCurrentTab(TabBar *tab_bar);
+GUI_API inline TabItem *TabBarFindTabByID(TabBar *tab_bar, ID tab_id) {
+  if (tab_id != 0)
+    for (int n = 0; n < tab_bar->Tabs.Size; n++)
+      if (tab_bar->Tabs[n].ID == tab_id)
+        return &tab_bar->Tabs[n];
+  return NULL;
+}
+
+GUI_API inline TabItem *TabBarFindTabByOrder(TabBar *tab_bar, int order) {
+  if (order < 0 || order >= tab_bar->Tabs.Size)
+    return NULL;
+  return &tab_bar->Tabs[order];
+}
+
+GUI_API inline TabItem *TabBarGetCurrentTab(TabBar *tab_bar) {
+  if (tab_bar->LastTabItemIdx <= 0 ||
+      tab_bar->LastTabItemIdx >= tab_bar->Tabs.Size)
+    return NULL;
+  return &tab_bar->Tabs[tab_bar->LastTabItemIdx];
+}
+
 inline int TabBarGetTabOrder(TabBar *tab_bar, TabItem *tab) {
   return tab_bar->Tabs.index_from_ptr(tab);
 }
 GUI_API const char *TabBarGetTabName(TabBar *tab_bar, TabItem *tab);
-GUI_API void TabBarRemoveTab(TabBar *tab_bar, ID tab_id);
+GUI_API inline void TabBarRemoveTab(TabBar *tab_bar, ID tab_id) {
+  if (TabItem *tab = TabBarFindTabByID(tab_bar, tab_id))
+    tab_bar->Tabs.erase(tab);
+  if (tab_bar->VisibleTabId == tab_id) {
+    tab_bar->VisibleTabId = 0;
+  }
+  if (tab_bar->SelectedTabId == tab_id) {
+    tab_bar->SelectedTabId = 0;
+  }
+  if (tab_bar->NextSelectedTabId == tab_id) {
+    tab_bar->NextSelectedTabId = 0;
+  }
+}
+
 GUI_API void TabBarCloseTab(TabBar *tab_bar, TabItem *tab);
-GUI_API void TabBarQueueFocus(TabBar *tab_bar, TabItem *tab);
+GUI_API inline void TabBarQueueFocus(TabBar *tab_bar, TabItem *tab) {
+  tab_bar->NextSelectedTabId = tab->ID;
+}
+
 GUI_API void TabBarQueueReorder(TabBar *tab_bar, TabItem *tab, int offset);
 GUI_API void TabBarQueueReorderFromMousePos(TabBar *tab_bar, TabItem *tab,
                                             Vec2 mouse_pos);
@@ -11710,12 +12867,45 @@ GUI_API void RenderTextClipped(const Vec2 &pos_min, const Vec2 &pos_max,
                                const Vec2 *text_size_if_known,
                                const Vec2 &align = Vec2(0, 0),
                                const Rect *clip_rect = NULL);
-GUI_API void RenderTextClippedEx(DrawList *draw_list, const Vec2 &pos_min,
-                                 const Vec2 &pos_max, const char *text,
-                                 const char *text_end,
-                                 const Vec2 *text_size_if_known,
-                                 const Vec2 &align = Vec2(0, 0),
-                                 const Rect *clip_rect = NULL);
+GUI_API inline void RenderTextClippedEx(DrawList *draw_list,
+                                        const Vec2 &pos_min,
+                                        const Vec2 &pos_max, const char *text,
+                                        const char *text_display_end,
+                                        const Vec2 *text_size_if_known,
+                                        const Vec2 &align = Vec2(0, 0),
+                                        const Rect *clip_rect = NULL) {
+  // Perform CPU side clipping for single clipped element to avoid using scissor
+  // state
+  Vec2 pos = pos_min;
+  const Vec2 text_size =
+      text_size_if_known ? *text_size_if_known
+                         : CalcTextSize(text, text_display_end, false, 0.0f);
+
+  const Vec2 *clip_min = clip_rect ? &clip_rect->Min : &pos_min;
+  const Vec2 *clip_max = clip_rect ? &clip_rect->Max : &pos_max;
+  bool need_clipping = (pos.x + text_size.x >= clip_max->x) ||
+                       (pos.y + text_size.y >= clip_max->y);
+  if (clip_rect) // If we had no explicit clipping rectangle then pos==clip_min
+    need_clipping |= (pos.x < clip_min->x) || (pos.y < clip_min->y);
+
+  // Align whole block. We should defer that to the better rendering function
+  // when we'll have support for individual line alignment.
+  if (align.x > 0.0f)
+    pos.x = Max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x);
+  if (align.y > 0.0f)
+    pos.y = Max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y);
+
+  // Render
+  if (need_clipping) {
+    Vec4 fine_clip_rect(clip_min->x, clip_min->y, clip_max->x, clip_max->y);
+    draw_list->AddText(NULL, 0.0f, pos, GetColorU32(Col_Text), text,
+                       text_display_end, 0.0f, &fine_clip_rect);
+  } else {
+    draw_list->AddText(NULL, 0.0f, pos, GetColorU32(Col_Text), text,
+                       text_display_end, 0.0f, NULL);
+  }
+}
+
 GUI_API void RenderTextEllipsis(DrawList *draw_list, const Vec2 &pos_min,
                                 const Vec2 &pos_max, float clip_max_x,
                                 float ellipsis_max_x, const char *text,
@@ -11724,33 +12914,169 @@ GUI_API void RenderTextEllipsis(DrawList *draw_list, const Vec2 &pos_min,
 GUI_API void RenderFrame(Vec2 p_min, Vec2 p_max, U32 fill_col,
                          bool border = true, float rounding = 0.0f);
 GUI_API void RenderFrameBorder(Vec2 p_min, Vec2 p_max, float rounding = 0.0f);
-GUI_API void RenderColorRectWithAlphaCheckerboard(
-    DrawList *draw_list, Vec2 p_min, Vec2 p_max, U32 fill_col, float grid_step,
-    Vec2 grid_off, float rounding = 0.0f, DrawFlags flags = 0);
+GUI_API inline void RenderColorRectWithAlphaCheckerboard(
+    DrawList *draw_list, Vec2 p_min, Vec2 p_max, U32 col, float grid_step,
+    Vec2 grid_off, float rounding = 0.0f, DrawFlags flags = 0) {
+  if ((flags & DrawFlags_RoundCornersMask_) == 0)
+    flags = DrawFlags_RoundCornersDefault_;
+  if (((col & GUI_COL32_A_MASK) >> GUI_COL32_A_SHIFT) < 0xFF) {
+    U32 col_bg1 =
+        GetColorU32(AlphaBlendColors(GUI_COL32(204, 204, 204, 255), col));
+    U32 col_bg2 =
+        GetColorU32(AlphaBlendColors(GUI_COL32(128, 128, 128, 255), col));
+    draw_list->AddRectFilled(p_min, p_max, col_bg1, rounding, flags);
+
+    int yi = 0;
+    for (float y = p_min.y + grid_off.y; y < p_max.y; y += grid_step, yi++) {
+      float y1 = Clamp(y, p_min.y, p_max.y), y2 = Min(y + grid_step, p_max.y);
+      if (y2 <= y1)
+        continue;
+      for (float x = p_min.x + grid_off.x + (yi & 1) * grid_step; x < p_max.x;
+           x += grid_step * 2.0f) {
+        float x1 = Clamp(x, p_min.x, p_max.x), x2 = Min(x + grid_step, p_max.x);
+        if (x2 <= x1)
+          continue;
+        DrawFlags cell_flags = DrawFlags_RoundCornersNone;
+        if (y1 <= p_min.y) {
+          if (x1 <= p_min.x)
+            cell_flags |= DrawFlags_RoundCornersTopLeft;
+          if (x2 >= p_max.x)
+            cell_flags |= DrawFlags_RoundCornersTopRight;
+        }
+        if (y2 >= p_max.y) {
+          if (x1 <= p_min.x)
+            cell_flags |= DrawFlags_RoundCornersBottomLeft;
+          if (x2 >= p_max.x)
+            cell_flags |= DrawFlags_RoundCornersBottomRight;
+        }
+
+        // Combine flags
+        cell_flags = (flags == DrawFlags_RoundCornersNone ||
+                      cell_flags == DrawFlags_RoundCornersNone)
+                         ? DrawFlags_RoundCornersNone
+                         : (cell_flags & flags);
+        draw_list->AddRectFilled(Vec2(x1, y1), Vec2(x2, y2), col_bg2, rounding,
+                                 cell_flags);
+      }
+    }
+  } else {
+    draw_list->AddRectFilled(p_min, p_max, col, rounding, flags);
+  }
+}
+
 GUI_API void
 RenderNavHighlight(const Rect &bb, ID id,
                    NavHighlightFlags flags =
                        NavHighlightFlags_TypeDefault); // Navigation highlight
-GUI_API const char *FindRenderedTextEnd(
-    const char *text,
-    const char *text_end =
-        NULL); // Find the optional ## from which we stop displaying text.
+GUI_API inline const char *FindRenderedTextEnd(const char *text,
+                                               const char *text_end = NULL) {
+  const char *text_display_end = text;
+  if (!text_end)
+    text_end = (const char *)-1;
+
+  while (text_display_end < text_end && *text_display_end != '\0' &&
+         (text_display_end[0] != '#' || text_display_end[1] != '#'))
+    text_display_end++;
+  return text_display_end;
+}
+// Find the optional ## from which we stop displaying text.
 GUI_API void RenderMouseCursor(Vec2 pos, float scale, MouseCursor mouse_cursor,
                                U32 col_fill, U32 col_border, U32 col_shadow);
 
 // Render helpers (those functions don't access any Gui state!)
 GUI_API void RenderArrow(DrawList *draw_list, Vec2 pos, U32 col, Dir dir,
                          float scale = 1.0f);
-GUI_API void RenderBullet(DrawList *draw_list, Vec2 pos, U32 col);
+GUI_API inline void RenderBullet(DrawList *draw_list, Vec2 pos, U32 col) {
+  // FIXME-OPT: This should be baked in font.
+  draw_list->AddCircleFilled(pos, draw_list->_Data->FontSize * 0.20f, col, 8);
+}
+
 GUI_API void RenderCheckMark(DrawList *draw_list, Vec2 pos, U32 col, float sz);
-GUI_API void RenderArrowPointingAt(DrawList *draw_list, Vec2 pos, Vec2 half_sz,
-                                   Dir direction, U32 col);
+GUI_API inline void RenderArrowPointingAt(DrawList *draw_list, Vec2 pos,
+                                          Vec2 half_sz, Dir direction,
+                                          U32 col) {
+  switch (direction) {
+  case Dir_Left:
+    draw_list->AddTriangleFilled(Vec2(pos.x + half_sz.x, pos.y - half_sz.y),
+                                 Vec2(pos.x + half_sz.x, pos.y + half_sz.y),
+                                 pos, col);
+    return;
+  case Dir_Right:
+    draw_list->AddTriangleFilled(Vec2(pos.x - half_sz.x, pos.y + half_sz.y),
+                                 Vec2(pos.x - half_sz.x, pos.y - half_sz.y),
+                                 pos, col);
+    return;
+  case Dir_Up:
+    draw_list->AddTriangleFilled(Vec2(pos.x + half_sz.x, pos.y + half_sz.y),
+                                 Vec2(pos.x - half_sz.x, pos.y + half_sz.y),
+                                 pos, col);
+    return;
+  case Dir_Down:
+    draw_list->AddTriangleFilled(Vec2(pos.x - half_sz.x, pos.y - half_sz.y),
+                                 Vec2(pos.x + half_sz.x, pos.y - half_sz.y),
+                                 pos, col);
+    return;
+  case Dir_None:
+  case Dir_COUNT:
+    break; // Fix warnings
+  }
+}
+
 GUI_API void RenderRectFilledRangeH(DrawList *draw_list, const Rect &rect,
                                     U32 col, float x_start_norm,
                                     float x_end_norm, float rounding);
-GUI_API void RenderRectFilledWithHole(DrawList *draw_list, const Rect &outer,
-                                      const Rect &inner, U32 col,
-                                      float rounding);
+GUI_API inline void RenderRectFilledWithHole(DrawList *draw_list,
+                                             const Rect &outer,
+                                             const Rect &inner, U32 col,
+                                             float rounding) {
+  const bool fill_L = (inner.Min.x > outer.Min.x);
+  const bool fill_R = (inner.Max.x < outer.Max.x);
+  const bool fill_U = (inner.Min.y > outer.Min.y);
+  const bool fill_D = (inner.Max.y < outer.Max.y);
+  if (fill_L)
+    draw_list->AddRectFilled(
+        Vec2(outer.Min.x, inner.Min.y), Vec2(inner.Min.x, inner.Max.y), col,
+        rounding,
+        DrawFlags_RoundCornersNone |
+            (fill_U ? 0 : DrawFlags_RoundCornersTopLeft) |
+            (fill_D ? 0 : DrawFlags_RoundCornersBottomLeft));
+  if (fill_R)
+    draw_list->AddRectFilled(
+        Vec2(inner.Max.x, inner.Min.y), Vec2(outer.Max.x, inner.Max.y), col,
+        rounding,
+        DrawFlags_RoundCornersNone |
+            (fill_U ? 0 : DrawFlags_RoundCornersTopRight) |
+            (fill_D ? 0 : DrawFlags_RoundCornersBottomRight));
+  if (fill_U)
+    draw_list->AddRectFilled(Vec2(inner.Min.x, outer.Min.y),
+                             Vec2(inner.Max.x, inner.Min.y), col, rounding,
+                             DrawFlags_RoundCornersNone |
+                                 (fill_L ? 0 : DrawFlags_RoundCornersTopLeft) |
+                                 (fill_R ? 0 : DrawFlags_RoundCornersTopRight));
+  if (fill_D)
+    draw_list->AddRectFilled(
+        Vec2(inner.Min.x, inner.Max.y), Vec2(inner.Max.x, outer.Max.y), col,
+        rounding,
+        DrawFlags_RoundCornersNone |
+            (fill_L ? 0 : DrawFlags_RoundCornersBottomLeft) |
+            (fill_R ? 0 : DrawFlags_RoundCornersBottomRight));
+  if (fill_L && fill_U)
+    draw_list->AddRectFilled(Vec2(outer.Min.x, outer.Min.y),
+                             Vec2(inner.Min.x, inner.Min.y), col, rounding,
+                             DrawFlags_RoundCornersTopLeft);
+  if (fill_R && fill_U)
+    draw_list->AddRectFilled(Vec2(inner.Max.x, outer.Min.y),
+                             Vec2(outer.Max.x, inner.Min.y), col, rounding,
+                             DrawFlags_RoundCornersTopRight);
+  if (fill_L && fill_D)
+    draw_list->AddRectFilled(Vec2(outer.Min.x, inner.Max.y),
+                             Vec2(inner.Min.x, outer.Max.y), col, rounding,
+                             DrawFlags_RoundCornersBottomLeft);
+  if (fill_R && fill_D)
+    draw_list->AddRectFilled(Vec2(inner.Max.x, inner.Max.y),
+                             Vec2(outer.Max.x, outer.Max.y), col, rounding,
+                             DrawFlags_RoundCornersBottomRight);
+}
 
 // Widgets
 GUI_API void TextEx(const char *text, const char *text_end = NULL,
@@ -11763,8 +13089,67 @@ GUI_API bool ImageButtonEx(ID id, TextureID texture_id, const Vec2 &image_size,
                            const Vec2 &uv0, const Vec2 &uv1, const Vec4 &bg_col,
                            const Vec4 &tint_col, ButtonFlags flags = 0);
 GUI_API void SeparatorEx(SeparatorFlags flags, float thickness = 1.0f);
-GUI_API void SeparatorTextEx(ID id, const char *label, const char *label_end,
-                             float extra_width);
+GUI_API inline void SeparatorTextEx(ID id, const char *label,
+                                    const char *label_end, float extra_w) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Style &style = g.Style;
+
+  const Vec2 label_size = CalcTextSize(label, label_end, false);
+  const Vec2 pos = window->DC.CursorPos;
+  const Vec2 padding = style.SeparatorTextPadding;
+
+  const float separator_thickness = style.SeparatorTextBorderSize;
+  const Vec2 min_size(
+      label_size.x + extra_w + padding.x * 2.0f,
+      Max(label_size.y + padding.y * 2.0f, separator_thickness));
+  const Rect bb(pos, Vec2(window->WorkRect.Max.x, pos.y + min_size.y));
+  const float text_baseline_y =
+      Trunc((bb.GetHeight() - label_size.y) * style.SeparatorTextAlign.y +
+            0.99999f); // Max(padding.y, Floor((style.SeparatorTextSize -
+                       // label_size.y) * 0.5f));
+  ItemSize(min_size, text_baseline_y);
+  if (!ItemAdd(bb, id))
+    return;
+
+  const float sep1_x1 = pos.x;
+  const float sep2_x2 = bb.Max.x;
+  const float seps_y = Trunc((bb.Min.y + bb.Max.y) * 0.5f + 0.99999f);
+
+  const float label_avail_w = Max(0.0f, sep2_x2 - sep1_x1 - padding.x * 2.0f);
+  const Vec2 label_pos(pos.x + padding.x +
+                           Max(0.0f, (label_avail_w - label_size.x - extra_w) *
+                                         style.SeparatorTextAlign.x),
+                       pos.y + text_baseline_y); // FIXME-ALIGN
+
+  // This allows using SameLine() to position something in the 'extra_w'
+  window->DC.CursorPosPrevLine.x = label_pos.x + label_size.x;
+
+  const U32 separator_col = GetColorU32(Col_Separator);
+  if (label_size.x > 0.0f) {
+    const float sep1_x2 = label_pos.x - style.ItemSpacing.x;
+    const float sep2_x1 =
+        label_pos.x + label_size.x + extra_w + style.ItemSpacing.x;
+    if (sep1_x2 > sep1_x1 && separator_thickness > 0.0f)
+      window->DrawList->AddLine(Vec2(sep1_x1, seps_y), Vec2(sep1_x2, seps_y),
+                                separator_col, separator_thickness);
+    if (sep2_x2 > sep2_x1 && separator_thickness > 0.0f)
+      window->DrawList->AddLine(Vec2(sep2_x1, seps_y), Vec2(sep2_x2, seps_y),
+                                separator_col, separator_thickness);
+    if (g.LogEnabled)
+      LogSetNextTextDecoration("---", NULL);
+    RenderTextEllipsis(window->DrawList, label_pos,
+                       Vec2(bb.Max.x, bb.Max.y + style.ItemSpacing.y), bb.Max.x,
+                       bb.Max.x, label, label_end, &label_size);
+  } else {
+    if (g.LogEnabled)
+      LogText("---");
+    if (separator_thickness > 0.0f)
+      window->DrawList->AddLine(Vec2(sep1_x1, seps_y), Vec2(sep2_x2, seps_y),
+                                separator_col, separator_thickness);
+  }
+}
+
 GUI_API bool CheckboxFlags(const char *label, S64 *flags, S64 flags_value);
 GUI_API bool CheckboxFlags(const char *label, U64 *flags, U64 flags_value);
 
@@ -11775,7 +13160,10 @@ GUI_API void Scrollbar(Axis axis);
 GUI_API bool ScrollbarEx(const Rect &bb, ID id, Axis axis, S64 *p_scroll_v,
                          S64 avail_v, S64 contents_v, DrawFlags flags);
 GUI_API Rect GetWindowScrollbarRect(Window *window, Axis axis);
-GUI_API ID GetWindowScrollbarID(Window *window, Axis axis);
+GUI_API inline ID GetWindowScrollbarID(Window *window, Axis axis) {
+  return window->GetID(axis == Axis_X ? "#SCROLLX" : "#SCROLLY");
+}
+
 GUI_API ID GetWindowResizeCornerID(Window *window,
                                    int n); // 0..3: corners
 GUI_API ID GetWindowResizeBorderID(Window *window, Dir dir);
@@ -11797,15 +13185,71 @@ GUI_API bool SplitterBehavior(const Rect &bb, ID id, Axis axis, float *size1,
                               U32 bg_col = 0);
 GUI_API bool TreeNodeBehavior(ID id, TreeNodeFlags flags, const char *label,
                               const char *label_end = NULL);
-GUI_API void TreePushOverrideID(ID id);
-GUI_API void TreeNodeSetOpen(ID id, bool open);
-GUI_API bool TreeNodeUpdateNextOpen(
-    ID id,
-    TreeNodeFlags
-        flags); // Return open state. Consume previous SetNextItemOpen() data,
-                // if any. May return true when logging.
-GUI_API void
-SetNextItemSelectionUserData(SelectionUserData selection_user_data);
+GUI_API inline void TreePushOverrideID(ID id) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Indent();
+  window->DC.TreeDepth++;
+  PushOverrideID(id);
+}
+
+GUI_API inline void TreeNodeSetOpen(ID id, bool open) {
+  Context &g = *GGui;
+  Storage *storage = g.CurrentWindow->DC.StateStorage;
+  storage->SetInt(id, open ? 1 : 0);
+}
+
+GUI_API inline bool TreeNodeUpdateNextOpen(ID id, TreeNodeFlags flags) {
+  if (flags & TreeNodeFlags_Leaf)
+    return true;
+
+  // We only write to the tree storage if the user clicks (or explicitly use the
+  // SetNextItemOpen function)
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Storage *storage = window->DC.StateStorage;
+
+  bool is_open;
+  if (g.NextItemData.Flags & NextItemDataFlags_HasOpen) {
+    if (g.NextItemData.OpenCond & Cond_Always) {
+      is_open = g.NextItemData.OpenVal;
+      TreeNodeSetOpen(id, is_open);
+    } else {
+      // We treat Cond_Once and Cond_FirstUseEver the same because
+      // tree node state are not saved persistently.
+      const int stored_value = storage->GetInt(id, -1);
+      if (stored_value == -1) {
+        is_open = g.NextItemData.OpenVal;
+        TreeNodeSetOpen(id, is_open);
+      } else {
+        is_open = stored_value != 0;
+      }
+    }
+  } else {
+    is_open =
+        storage->GetInt(id, (flags & TreeNodeFlags_DefaultOpen) ? 1 : 0) != 0;
+  }
+
+  // When logging is enabled, we automatically expand tree nodes (but *NOT*
+  // collapsing headers.. seems like sensible behavior). NB- If we are above max
+  // depth we still allow manually opened nodes to be logged.
+  if (g.LogEnabled && !(flags & TreeNodeFlags_NoAutoOpenOnLog) &&
+      (window->DC.TreeDepth - g.LogDepthRef) < g.LogDepthToExpand)
+    is_open = true;
+
+  return is_open;
+}
+// Return open state. Consume previous SetNextItemOpen() data,
+// if any. May return true when logging.
+GUI_API inline void
+SetNextItemSelectionUserData(SelectionUserData selection_user_data) {
+  // Note that flags will be cleared by ItemAdd(), so it's only useful for
+  // Navigation code! This designed so widgets can also cheaply set this before
+  // calling ItemAdd(), so we are not tied to MultiSelect api.
+  Context &g = *GGui;
+  g.NextItemData.ItemFlags |= ItemFlags_HasSelectionUserData;
+  g.NextItemData.SelectionUserData = selection_user_data;
+}
 
 // Template functions are instantiated in gui_widgets.hpp for a finite number
 // of types. To use them externally (for custom widget) you may need an "extern
@@ -11871,9 +13315,112 @@ inline InputTextState *GetInputTextState(ID id) {
 } // Get input text state if active
 
 // Color
-GUI_API void ColorTooltip(const char *text, const float *col,
-                          ColorEditFlags flags);
-GUI_API void ColorEditOptionsPopup(const float *col, ColorEditFlags flags);
+GUI_API inline void ColorTooltip(const char *text, const float *col,
+                                 ColorEditFlags flags) {
+  Context &g = *GGui;
+
+  if (!BeginTooltipEx(TooltipFlags_OverridePrevious, WindowFlags_None))
+    return;
+  const char *text_end = text ? FindRenderedTextEnd(text, NULL) : text;
+  if (text_end > text) {
+    TextEx(text, text_end);
+    Separator();
+  }
+
+  Vec2 sz(g.FontSize * 3 + g.Style.FramePadding.y * 2,
+          g.FontSize * 3 + g.Style.FramePadding.y * 2);
+  Vec4 cf(col[0], col[1], col[2],
+          (flags & ColorEditFlags_NoAlpha) ? 1.0f : col[3]);
+  int cr = GUI_F32_TO_INT8_SAT(col[0]), cg = GUI_F32_TO_INT8_SAT(col[1]),
+      cb = GUI_F32_TO_INT8_SAT(col[2]),
+      ca = (flags & ColorEditFlags_NoAlpha) ? 255 : GUI_F32_TO_INT8_SAT(col[3]);
+  ColorButton("##preview", cf,
+              (flags & (ColorEditFlags_InputMask_ | ColorEditFlags_NoAlpha |
+                        ColorEditFlags_AlphaPreview |
+                        ColorEditFlags_AlphaPreviewHalf)) |
+                  ColorEditFlags_NoTooltip,
+              sz);
+  SameLine();
+  if ((flags & ColorEditFlags_InputRGB) ||
+      !(flags & ColorEditFlags_InputMask_)) {
+    if (flags & ColorEditFlags_NoAlpha)
+      Text("#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)", cr, cg, cb,
+           cr, cg, cb, col[0], col[1], col[2]);
+    else
+      Text(
+          "#%02X%02X%02X%02X\nR:%d, G:%d, B:%d, A:%d\n(%.3f, %.3f, %.3f, %.3f)",
+          cr, cg, cb, ca, cr, cg, cb, ca, col[0], col[1], col[2], col[3]);
+  } else if (flags & ColorEditFlags_InputHSV) {
+    if (flags & ColorEditFlags_NoAlpha)
+      Text("H: %.3f, S: %.3f, V: %.3f", col[0], col[1], col[2]);
+    else
+      Text("H: %.3f, S: %.3f, V: %.3f, A: %.3f", col[0], col[1], col[2],
+           col[3]);
+  }
+  EndTooltip();
+}
+
+GUI_API inline void ColorEditOptionsPopup(const float *col,
+                                          ColorEditFlags flags) {
+  bool allow_opt_inputs = !(flags & ColorEditFlags_DisplayMask_);
+  bool allow_opt_datatype = !(flags & ColorEditFlags_DataTypeMask_);
+  if ((!allow_opt_inputs && !allow_opt_datatype) || !BeginPopup("context"))
+    return;
+  Context &g = *GGui;
+  g.LockMarkEdited++;
+  ColorEditFlags opts = g.ColorEditOptions;
+  if (allow_opt_inputs) {
+    if (RadioButton("RGB", (opts & ColorEditFlags_DisplayRGB) != 0))
+      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayRGB;
+    if (RadioButton("HSV", (opts & ColorEditFlags_DisplayHSV) != 0))
+      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayHSV;
+    if (RadioButton("Hex", (opts & ColorEditFlags_DisplayHex) != 0))
+      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayHex;
+  }
+  if (allow_opt_datatype) {
+    if (allow_opt_inputs)
+      Separator();
+    if (RadioButton("0..255", (opts & ColorEditFlags_Uint8) != 0))
+      opts = (opts & ~ColorEditFlags_DataTypeMask_) | ColorEditFlags_Uint8;
+    if (RadioButton("0.00..1.00", (opts & ColorEditFlags_Float) != 0))
+      opts = (opts & ~ColorEditFlags_DataTypeMask_) | ColorEditFlags_Float;
+  }
+
+  if (allow_opt_inputs || allow_opt_datatype)
+    Separator();
+  if (Button("Copy as..", Vec2(-1, 0)))
+    OpenPopup("Copy");
+  if (BeginPopup("Copy")) {
+    int cr = GUI_F32_TO_INT8_SAT(col[0]), cg = GUI_F32_TO_INT8_SAT(col[1]),
+        cb = GUI_F32_TO_INT8_SAT(col[2]),
+        ca = (flags & ColorEditFlags_NoAlpha) ? 255
+                                              : GUI_F32_TO_INT8_SAT(col[3]);
+    char buf[64];
+    FormatString(buf, GUI_ARRAYSIZE(buf), "(%.3ff, %.3ff, %.3ff, %.3ff)",
+                 col[0], col[1], col[2],
+                 (flags & ColorEditFlags_NoAlpha) ? 1.0f : col[3]);
+    if (Selectable(buf))
+      SetClipboardText(buf);
+    FormatString(buf, GUI_ARRAYSIZE(buf), "(%d,%d,%d,%d)", cr, cg, cb, ca);
+    if (Selectable(buf))
+      SetClipboardText(buf);
+    FormatString(buf, GUI_ARRAYSIZE(buf), "#%02X%02X%02X", cr, cg, cb);
+    if (Selectable(buf))
+      SetClipboardText(buf);
+    if (!(flags & ColorEditFlags_NoAlpha)) {
+      FormatString(buf, GUI_ARRAYSIZE(buf), "#%02X%02X%02X%02X", cr, cg, cb,
+                   ca);
+      if (Selectable(buf))
+        SetClipboardText(buf);
+    }
+    EndPopup();
+  }
+
+  g.ColorEditOptions = opts;
+  EndPopup();
+  g.LockMarkEdited--;
+}
+
 GUI_API void ColorPickerOptionsPopup(const float *ref_col,
                                      ColorEditFlags flags);
 
@@ -11938,11 +13485,30 @@ GUI_API void ErrorCheckEndFrameRecover(ErrorLogCallback log_callback,
 GUI_API void ErrorCheckEndWindowRecover(ErrorLogCallback log_callback,
                                         void *user_data = NULL);
 GUI_API void ErrorCheckUsingSetCursorPosToExtendParentBoundaries();
-GUI_API void DebugDrawCursorPos(U32 col = GUI_COL32(255, 0, 0, 255));
+GUI_API inline void DebugDrawCursorPos(U32 col = GUI_COL32(255, 0, 0, 255)) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  Vec2 pos = window->DC.CursorPos;
+  window->DrawList->AddLine(Vec2(pos.x, pos.y - 3.0f),
+                            Vec2(pos.x, pos.y + 4.0f), col, 1.0f);
+  window->DrawList->AddLine(Vec2(pos.x - 3.0f, pos.y),
+                            Vec2(pos.x + 4.0f, pos.y), col, 1.0f);
+}
+
 GUI_API void DebugDrawLineExtents(U32 col = GUI_COL32(255, 0, 0, 255));
-GUI_API void DebugDrawItemRect(U32 col = GUI_COL32(255, 0, 0, 255));
-GUI_API void
-DebugLocateItem(ID target_id); // Call sparingly: only 1 at the same time!
+GUI_API inline void DebugDrawItemRect(U32 col = GUI_COL32(255, 0, 0, 255)) {
+  Context &g = *GGui;
+  Window *window = g.CurrentWindow;
+  GetForegroundDrawList(window)->AddRect(g.LastItemData.Rect.Min,
+                                         g.LastItemData.Rect.Max, col);
+}
+
+GUI_API inline void DebugLocateItem(ID target_id) {
+  Context &g = *GGui;
+  g.DebugLocateId = target_id;
+  g.DebugLocateFrames = 2;
+}
+// Call sparingly: only 1 at the same time!
 GUI_API void
 DebugLocateItemOnHover(ID target_id); // Only call on reaction to a mouse Hover:
                                       // because only 1 at the same time!
@@ -11963,20 +13529,166 @@ GUI_API void DebugNodeDrawCmdShowMeshAndBoundingBox(DrawList *out_draw_list,
                                                     bool show_mesh,
                                                     bool show_aabb);
 GUI_API void DebugNodeFont(Font *font);
-GUI_API void DebugNodeFontGlyph(Font *font, const FontGlyph *glyph);
-GUI_API void DebugNodeStorage(Storage *storage, const char *label);
-GUI_API void DebugNodeTabBar(TabBar *tab_bar, const char *label);
+GUI_API inline void DebugNodeFontGlyph(Font *, const FontGlyph *glyph) {
+  Text("Codepoint: U+%04X", glyph->Codepoint);
+  Separator();
+  Text("Visible: %d", glyph->Visible);
+  Text("AdvanceX: %.1f", glyph->AdvanceX);
+  Text("Pos: (%.2f,%.2f)->(%.2f,%.2f)", glyph->X0, glyph->Y0, glyph->X1,
+       glyph->Y1);
+  Text("UV: (%.3f,%.3f)->(%.3f,%.3f)", glyph->U0, glyph->V0, glyph->U1,
+       glyph->V1);
+}
+
+GUI_API inline void DebugNodeStorage(Storage *storage, const char *label) {
+  if (!TreeNode(label, "%s: %d entries, %d bytes", label, storage->Data.Size,
+                storage->Data.size_in_bytes()))
+    return;
+  for (const Storage::StoragePair &p : storage->Data)
+    BulletText("Key 0x%08X Value { i: %d }", p.key,
+               p.val_i); // Important: we currently don't store a type, real
+                         // value may not be integer.
+  TreePop();
+}
+
+GUI_API inline void DebugNodeTabBar(TabBar *tab_bar, const char *label) {
+  // Standalone tab bars (not associated to docking/windows functionality)
+  // currently hold no discernible strings.
+  char buf[256];
+  char *p = buf;
+  const char *buf_end = buf + GUI_ARRAYSIZE(buf);
+  const bool is_active = (tab_bar->PrevFrameVisible >= GetFrameCount() - 2);
+  p += FormatString(p, buf_end - p, "%s 0x%08X (%d tabs)%s  {", label,
+                    tab_bar->ID, tab_bar->Tabs.Size,
+                    is_active ? "" : " *Inactive*");
+  for (int tab_n = 0; tab_n < Min(tab_bar->Tabs.Size, 3); tab_n++) {
+    TabItem *tab = &tab_bar->Tabs[tab_n];
+    p += FormatString(p, buf_end - p, "%s'%s'", tab_n > 0 ? ", " : "",
+                      TabBarGetTabName(tab_bar, tab));
+  }
+  p +=
+      FormatString(p, buf_end - p, (tab_bar->Tabs.Size > 3) ? " ... }" : " } ");
+  if (!is_active) {
+    PushStyleColor(Col_Text, GetStyleColorVec4(Col_TextDisabled));
+  }
+  bool open = TreeNode(label, "%s", buf);
+  if (!is_active) {
+    PopStyleColor();
+  }
+  if (is_active && IsItemHovered()) {
+    DrawList *draw_list = GetForegroundDrawList();
+    draw_list->AddRect(tab_bar->BarRect.Min, tab_bar->BarRect.Max,
+                       GUI_COL32(255, 255, 0, 255));
+    draw_list->AddLine(Vec2(tab_bar->ScrollingRectMinX, tab_bar->BarRect.Min.y),
+                       Vec2(tab_bar->ScrollingRectMinX, tab_bar->BarRect.Max.y),
+                       GUI_COL32(0, 255, 0, 255));
+    draw_list->AddLine(Vec2(tab_bar->ScrollingRectMaxX, tab_bar->BarRect.Min.y),
+                       Vec2(tab_bar->ScrollingRectMaxX, tab_bar->BarRect.Max.y),
+                       GUI_COL32(0, 255, 0, 255));
+  }
+  if (open) {
+    for (int tab_n = 0; tab_n < tab_bar->Tabs.Size; tab_n++) {
+      TabItem *tab = &tab_bar->Tabs[tab_n];
+      PushID(tab);
+      if (SmallButton("<")) {
+        TabBarQueueReorder(tab_bar, tab, -1);
+      }
+      SameLine(0, 2);
+      if (SmallButton(">")) {
+        TabBarQueueReorder(tab_bar, tab, +1);
+      }
+      SameLine();
+      Text("%02d%c Tab 0x%08X '%s' Offset: %.2f, Width: %.2f/%.2f", tab_n,
+           (tab->ID == tab_bar->SelectedTabId) ? '*' : ' ', tab->ID,
+           TabBarGetTabName(tab_bar, tab), tab->Offset, tab->Width,
+           tab->ContentWidth);
+      PopID();
+    }
+    TreePop();
+  }
+}
+
 GUI_API void DebugNodeTable(Table *table);
 GUI_API void DebugNodeTableSettings(TableSettings *settings);
 GUI_API void DebugNodeInputTextState(InputTextState *state);
-GUI_API void DebugNodeTypingSelectState(TypingSelectState *state);
+GUI_API inline void DebugNodeTypingSelectState(TypingSelectState *data) {
+#ifndef GUI_DISABLE_DEBUG_TOOLS
+  Text("SearchBuffer = \"%s\"", data->SearchBuffer);
+  Text("SingleCharMode = %d, Size = %d, Lock = %d",
+       data->Request.SingleCharMode, data->Request.SingleCharSize,
+       data->SingleCharModeLock);
+  Text("LastRequest = time: %.2f, frame: %d", data->LastRequestTime,
+       data->LastRequestFrame);
+#else
+  GUI_UNUSED(data);
+#endif
+}
+
 GUI_API void DebugNodeWindow(Window *window, const char *label);
-GUI_API void DebugNodeWindowSettings(WindowSettings *settings);
-GUI_API void DebugNodeWindowsList(Vector<Window *> *windows, const char *label);
-GUI_API void
+GUI_API inline void DebugNodeWindowSettings(WindowSettings *settings) {
+  if (settings->WantDelete)
+    BeginDisabled();
+  Text("0x%08X \"%s\" Pos (%d,%d) Size (%d,%d) Collapsed=%d", settings->ID,
+       settings->GetName(), settings->Pos.x, settings->Pos.y, settings->Size.x,
+       settings->Size.y, settings->Collapsed);
+  if (settings->WantDelete)
+    EndDisabled();
+}
+
+GUI_API inline void DebugNodeWindowsList(Vector<Window *> *windows,
+                                         const char *label) {
+  if (!TreeNode(label, "%s (%d)", label, windows->Size))
+    return;
+  for (int i = windows->Size - 1; i >= 0; i--) // Iterate front to back
+  {
+    PushID((*windows)[i]);
+    DebugNodeWindow((*windows)[i], "Window");
+    PopID();
+  }
+  TreePop();
+}
+
+GUI_API inline void
 DebugNodeWindowsListByBeginStackParent(Window **windows, int windows_size,
-                                       Window *parent_in_begin_stack);
-GUI_API void DebugNodeViewport(ViewportP *viewport);
+                                       Window *parent_in_begin_stack) {
+  for (int i = 0; i < windows_size; i++) {
+    Window *window = windows[i];
+    if (window->ParentWindowInBeginStack != parent_in_begin_stack)
+      continue;
+    char buf[20];
+    FormatString(buf, GUI_ARRAYSIZE(buf), "[%04d] Window",
+                 window->BeginOrderWithinContext);
+    // BulletText("[%04d] Window '%s'", window->BeginOrderWithinContext,
+    // window->Name);
+    DebugNodeWindow(window, buf);
+    Indent();
+    DebugNodeWindowsListByBeginStackParent(windows + i + 1,
+                                           windows_size - i - 1, window);
+    Unindent();
+  }
+}
+
+GUI_API inline void DebugNodeViewport(ViewportP *viewport) {
+  SetNextItemOpen(true, Cond_Once);
+  if (TreeNode("viewport0", "Viewport #%d", 0)) {
+    WindowFlags flags = viewport->Flags;
+    BulletText("Main Pos: (%.0f,%.0f), Size: (%.0f,%.0f)\nWorkArea Offset "
+               "Left: %.0f Top: %.0f, Right: %.0f, Bottom: %.0f",
+               viewport->Pos.x, viewport->Pos.y, viewport->Size.x,
+               viewport->Size.y, viewport->WorkOffsetMin.x,
+               viewport->WorkOffsetMin.y, viewport->WorkOffsetMax.x,
+               viewport->WorkOffsetMax.y);
+    BulletText(
+        "Flags: 0x%04X =%s%s%s", viewport->Flags,
+        (flags & ViewportFlags_IsPlatformWindow) ? " IsPlatformWindow" : "",
+        (flags & ViewportFlags_IsPlatformMonitor) ? " IsPlatformMonitor" : "",
+        (flags & ViewportFlags_OwnedByApp) ? " OwnedByApp" : "");
+    for (DrawList *draw_list : viewport->DrawDataP.CmdLists)
+      DebugNodeDrawList(NULL, viewport, draw_list, "DrawList");
+    TreePop();
+  }
+}
+
 GUI_API void DebugRenderKeyboardPreview(DrawList *draw_list);
 GUI_API void DebugRenderViewportThumbnail(DrawList *draw_list,
                                           ViewportP *viewport, const Rect &bb);
@@ -12037,7 +13749,17 @@ struct FontBuilderIO {
 #ifdef GUI_ENABLE_STB_TRUETYPE
 GUI_API const FontBuilderIO *FontAtlasGetBuilderForStbTruetype();
 #endif
-GUI_API void FontAtlasUpdateConfigDataPointers(FontAtlas *atlas);
+GUI_API inline void FontAtlasUpdateConfigDataPointers(FontAtlas *atlas) {
+  for (FontConfig &font_cfg : atlas->ConfigData) {
+    Font *font = font_cfg.DstFont;
+    if (!font_cfg.MergeMode) {
+      font->ConfigData = &font_cfg;
+      font->ConfigDataCount = 0;
+    }
+    font->ConfigDataCount++;
+  }
+}
+
 GUI_API void FontAtlasBuildInit(FontAtlas *atlas);
 GUI_API void FontAtlasBuildSetupFont(FontAtlas *atlas, Font *font,
                                      FontConfig *font_config, float ascent,
@@ -12051,11 +13773,25 @@ GUI_API void FontAtlasBuildRender8bppRectFromString(
 GUI_API void FontAtlasBuildRender32bppRectFromString(
     FontAtlas *atlas, int x, int y, int w, int h, const char *in_str,
     char in_marker_char, unsigned int in_marker_pixel_value);
-GUI_API void FontAtlasBuildMultiplyCalcLookupTable(unsigned char out_table[256],
-                                                   float in_multiply_factor);
-GUI_API void FontAtlasBuildMultiplyRectAlpha8(const unsigned char table[256],
-                                              unsigned char *pixels, int x,
-                                              int y, int w, int h, int stride);
+GUI_API inline void
+FontAtlasBuildMultiplyCalcLookupTable(unsigned char out_table[256],
+                                      float in_brighten_factor) {
+  for (unsigned int i = 0; i < 256; i++) {
+    unsigned int value = (unsigned int)(i * in_brighten_factor);
+    out_table[i] = value > 255 ? 255 : (value & 0xFF);
+  }
+}
+
+GUI_API inline void
+FontAtlasBuildMultiplyRectAlpha8(const unsigned char table[256],
+                                 unsigned char *pixels, int x, int y, int w,
+                                 int h, int stride) {
+  GUI_ASSERT_PARANOID(w <= stride);
+  unsigned char *data = pixels + x + y * stride;
+  for (int j = h; j > 0; j--, data += stride - w)
+    for (int i = w; i > 0; i--, data++)
+      *data = table[*data];
+}
 
 //-----------------------------------------------------------------------------
 // [SECTION] Test Engine specific hooks (gui_test_engine)
@@ -14326,7 +16062,7 @@ inline Style::Style() {
 // because we round all sizes to integer. If you need to change your scale
 // multiples, call this over a freshly initialized Style structure rather
 // than scaling multiple times.
-void Style::ScaleAllSizes(float scale_factor) {
+inline void Style::ScaleAllSizes(float scale_factor) {
   WindowPadding.x = Trunc(WindowPadding.x * scale_factor);
   WindowPadding.y = Trunc(WindowPadding.y * scale_factor);
   WindowRounding = Trunc(WindowRounding * scale_factor);
@@ -14366,7 +16102,7 @@ void Style::ScaleAllSizes(float scale_factor) {
   MouseCursorScale = Trunc(MouseCursorScale * scale_factor);
 }
 
-IO::IO() {
+inline IO::IO() {
   // Most fields are initialized with zero
   memset(this, 0, sizeof(*this));
   GUI_STATIC_ASSERT(GUI_ARRAYSIZE(IO::MouseDown) == MouseButton_COUNT &&
@@ -14446,7 +16182,7 @@ IO::IO() {
 // WM_CHAR message
 // FIXME: Should in theory be called "AddCharacterEvent()" to be consistent with
 // new API
-void IO::AddInputCharacter(unsigned int c) {
+inline void IO::AddInputCharacter(unsigned int c) {
   GUI_ASSERT(Ctx != NULL);
   Context &g = *Ctx;
   if (c == 0 || !AppAcceptingEvents)
@@ -14462,7 +16198,7 @@ void IO::AddInputCharacter(unsigned int c) {
 
 // UTF16 strings use surrogate pairs to encode codepoints >= 0x10000, so
 // we should save the high surrogate.
-void IO::AddInputCharacterUTF16(Wchar16 c) {
+inline void IO::AddInputCharacterUTF16(Wchar16 c) {
   if ((c == 0 && InputQueueSurrogate == 0) || !AppAcceptingEvents)
     return;
 
@@ -14493,7 +16229,7 @@ void IO::AddInputCharacterUTF16(Wchar16 c) {
   AddInputCharacter((unsigned)cp);
 }
 
-void IO::AddInputCharactersUTF8(const char *utf8_chars) {
+inline void IO::AddInputCharactersUTF8(const char *utf8_chars) {
   if (!AppAcceptingEvents)
     return;
   while (*utf8_chars != 0) {
@@ -14504,7 +16240,7 @@ void IO::AddInputCharactersUTF8(const char *utf8_chars) {
 }
 
 // Clear all incoming events.
-void IO::ClearEventsQueue() {
+inline void IO::ClearEventsQueue() {
   GUI_ASSERT(Ctx != NULL);
   Context &g = *Ctx;
   g.InputEventsQueue.clear();
@@ -14512,7 +16248,7 @@ void IO::ClearEventsQueue() {
 
 // Clear current keyboard/mouse/gamepad state + current frame text input buffer.
 // Equivalent to releasing all keys/buttons.
-void IO::ClearInputKeys() {
+inline void IO::ClearInputKeys() {
 #ifndef GUI_DISABLE_OBSOLETE_KEYIO
   memset(KeysDown, 0, sizeof(KeysDown));
 #endif
@@ -14563,7 +16299,7 @@ static InputEvent *FindLatestInputEvent(Context *ctx, InputEventType type,
 // IMPORTANT: THIS FUNCTION AND OTHER "ADD" GRABS THE CONTEXT FROM OUR INSTANCE.
 // WE NEED TO ENSURE THAT ALL FUNCTION CALLS ARE FULLFILLING THIS, WHICH IS WHY
 // GetKeyData() HAS AN EXPLICIT CONTEXT.
-void IO::AddKeyAnalogEvent(Key key, bool down, float analog_value) {
+inline void IO::AddKeyAnalogEvent(Key key, bool down, float analog_value) {
   // if (e->Down) { GUI_DEBUG_LOG_IO("AddKeyEvent() Key='%s' %d, NativeKeycode
   // = %d, NativeScancode = %d\n", Gui::GetKeyName(e->Key), e->Down,
   // e->NativeKeycode, e->NativeScancode); }
@@ -14627,8 +16363,9 @@ void IO::AddKeyAnalogEvent(Key key, bool down, float analog_value) {
 // functions with native indices. If you are writing a backend in 2022 or don't
 // use IsKeyXXX() with native values that are not Key values, you can avoid
 // calling this.
-void IO::SetKeyEventNativeData(Key key, int native_keycode, int native_scancode,
-                               int native_legacy_index) {
+inline void IO::SetKeyEventNativeData(Key key, int native_keycode,
+                                      int native_scancode,
+                                      int native_legacy_index) {
   if (key == Key_None)
     return;
   GUI_ASSERT(Gui::IsNamedKey(key)); // >= 512
@@ -14656,12 +16393,9 @@ void IO::SetKeyEventNativeData(Key key, int native_keycode, int native_scancode,
 // if you have native dialog boxes that are interrupting your application
 // loop/refresh, and you want to disable events being queued while your app is
 // frozen.
-void IO::SetAppAcceptingEvents(bool accepting_events) {
-  AppAcceptingEvents = accepting_events;
-}
 
 // Queue a mouse move event
-void IO::AddMousePosEvent(float x, float y) {
+inline void IO::AddMousePosEvent(float x, float y) {
   GUI_ASSERT(Ctx != NULL);
   Context &g = *Ctx;
   if (!AppAcceptingEvents)
@@ -14689,7 +16423,7 @@ void IO::AddMousePosEvent(float x, float y) {
   g.InputEventsQueue.push_back(e);
 }
 
-void IO::AddMouseButtonEvent(int mouse_button, bool down) {
+inline void IO::AddMouseButtonEvent(int mouse_button, bool down) {
   GUI_ASSERT(Ctx != NULL);
   Context &g = *Ctx;
   GUI_ASSERT(mouse_button >= 0 && mouse_button < MouseButton_COUNT);
@@ -14715,7 +16449,7 @@ void IO::AddMouseButtonEvent(int mouse_button, bool down) {
 }
 
 // Queue a mouse wheel event (some mouse/API may only have a Y component)
-void IO::AddMouseWheelEvent(float wheel_x, float wheel_y) {
+inline void IO::AddMouseWheelEvent(float wheel_x, float wheel_y) {
   GUI_ASSERT(Ctx != NULL);
   Context &g = *Ctx;
 
@@ -14855,7 +16589,7 @@ inline Vec2 BezierCubicClosestPointCasteljau(const Vec2 &p1, const Vec2 &p2,
   return p_closest;
 }
 
-Vec2 LineClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &p) {
+inline Vec2 LineClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &p) {
   Vec2 ap = Subtract(p, a);
   Vec2 ab_dir = Subtract(b, a);
   float dot = ap.x * ab_dir.x + ap.y * ab_dir.y;
@@ -14867,9 +16601,10 @@ Vec2 LineClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &p) {
   return Add(a, Divide(Multiply(ab_dir, dot), ab_len_sqr));
 }
 
-void TriangleBarycentricCoords(const Vec2 &a, const Vec2 &b, const Vec2 &c,
-                               const Vec2 &p, float &out_u, float &out_v,
-                               float &out_w) {
+inline void TriangleBarycentricCoords(const Vec2 &a, const Vec2 &b,
+                                      const Vec2 &c, const Vec2 &p,
+                                      float &out_u, float &out_v,
+                                      float &out_w) {
   Vec2 v0 = Subtract(b, a);
   Vec2 v1 = Subtract(c, a);
   Vec2 v2 = Subtract(p, a);
@@ -14879,8 +16614,8 @@ void TriangleBarycentricCoords(const Vec2 &a, const Vec2 &b, const Vec2 &c,
   out_u = 1.0f - out_v - out_w;
 }
 
-Vec2 TriangleClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &c,
-                          const Vec2 &p) {
+inline Vec2 TriangleClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &c,
+                                 const Vec2 &p) {
   Vec2 proj_ab = LineClosestPoint(a, b, p);
   Vec2 proj_bc = LineClosestPoint(b, c, p);
   Vec2 proj_ca = LineClosestPoint(c, a, p);
@@ -14901,7 +16636,7 @@ Vec2 TriangleClosestPoint(const Vec2 &a, const Vec2 &b, const Vec2 &c,
 
 // Consider using _stricmp/_strnicmp under Windows or strcasecmp/strncasecmp. We
 // don't actually use eitherStricmp/Strnicmp in the codebase any more.
-int Stricmp(const char *str1, const char *str2) {
+inline int Stricmp(const char *str1, const char *str2) {
   int d;
   while ((d = ToUpper(*str2) - ToUpper(*str1)) == 0 && *str1) {
     str1++;
@@ -14910,7 +16645,7 @@ int Stricmp(const char *str1, const char *str2) {
   return d;
 }
 
-int Strnicmp(const char *str1, const char *str2, size_t count) {
+inline int Strnicmp(const char *str1, const char *str2, size_t count) {
   int d = 0;
   while (count > 0 && (d = ToUpper(*str2) - ToUpper(*str1)) == 0 && *str1) {
     str1++;
@@ -14920,7 +16655,7 @@ int Strnicmp(const char *str1, const char *str2, size_t count) {
   return d;
 }
 
-void Strncpy(char *dst, const char *src, size_t count) {
+inline void Strncpy(char *dst, const char *src, size_t count) {
   if (count < 1)
     return;
   if (count > 1)
@@ -14928,13 +16663,13 @@ void Strncpy(char *dst, const char *src, size_t count) {
   dst[count - 1] = 0;
 }
 
-char *Strdup(const char *str) {
+inline char *Strdup(const char *str) {
   size_t len = strlen(str);
   void *buf = GUI_ALLOC(len + 1);
   return (char *)memcpy(buf, (const void *)str, len + 1);
 }
 
-char *Strdupcpy(char *dst, size_t *p_dst_size, const char *src) {
+inline char *Strdupcpy(char *dst, size_t *p_dst_size, const char *src) {
   size_t dst_buf_size = p_dst_size ? *p_dst_size : strlen(dst) + 1;
   size_t src_size = strlen(src) + 1;
   if (dst_buf_size < src_size) {
@@ -14946,29 +16681,20 @@ char *Strdupcpy(char *dst, size_t *p_dst_size, const char *src) {
   return (char *)memcpy(dst, (const void *)src, src_size);
 }
 
-const char *StrchrRange(const char *str, const char *str_end, char c) {
+inline const char *StrchrRange(const char *str, const char *str_end, char c) {
   const char *p = (const char *)memchr(str, (int)c, str_end - str);
   return p;
 }
 
-int StrlenW(const Wchar *str) {
-  // return (int)wcslen((const wchar_t*)str);  // FIXME-OPT: Could use this when
-  // wchar_t are 16-bit
-  int n = 0;
-  while (*str++)
-    n++;
-  return n;
-}
-
 // Find end-of-line. Return pointer will point to either first \n, either
 // str_end.
-const char *StreolRange(const char *str, const char *str_end) {
+inline const char *StreolRange(const char *str, const char *str_end) {
   const char *p = (const char *)memchr(str, '\n', str_end - str);
   return p ? p : str_end;
 }
 
-const char *Stristr(const char *haystack, const char *haystack_end,
-                    const char *needle, const char *needle_end) {
+inline const char *Stristr(const char *haystack, const char *haystack_end,
+                           const char *needle, const char *needle_end) {
   if (!needle_end)
     needle_end = needle + strlen(needle);
 
@@ -15066,16 +16792,18 @@ inline int FormatStringV(char *buf, size_t buf_size, const char *fmt,
 }
 #endif // #ifdef GUI_DISABLE_DEFAULT_FORMAT_FUNCTIONS
 
-void FormatStringToTempBuffer(const char **out_buf, const char **out_buf_end,
-                              const char *fmt, ...) {
+inline void FormatStringToTempBuffer(const char **out_buf,
+                                     const char **out_buf_end, const char *fmt,
+                                     ...) {
   va_list args;
   va_start(args, fmt);
   FormatStringToTempBufferV(out_buf, out_buf_end, fmt, args);
   va_end(args);
 }
 
-void FormatStringToTempBufferV(const char **out_buf, const char **out_buf_end,
-                               const char *fmt, va_list args) {
+inline void FormatStringToTempBufferV(const char **out_buf,
+                                      const char **out_buf_end, const char *fmt,
+                                      va_list args) {
   Context &g = *GGui;
   if (fmt[0] == '%' && fmt[1] == 's' && fmt[2] == 0) {
     const char *buf =
@@ -15163,7 +16891,7 @@ static const U32 GCrc32LookupTable[256] = {
 // operator won't be supported.
 // FIXME-OPT: Replace with e.g. FNV1a hash? CRC32 pretty much randomly access
 // 1KB. Need to do proper measurements.
-ID HashData(const void *data_p, size_t data_size, ID seed) {
+inline ID HashData(const void *data_p, size_t data_size, ID seed) {
   U32 crc = ~seed;
   const unsigned char *data = (const unsigned char *)data_p;
   const U32 *crc32_lut = GCrc32LookupTable;
@@ -15182,7 +16910,7 @@ ID HashData(const void *data_p, size_t data_size, ID seed) {
 // smaller/faster (measured ~10% diff in Debug build)
 // FIXME-OPT: Replace with e.g. FNV1a hash? CRC32 pretty much randomly access
 // 1KB. Need to do proper measurements.
-ID HashStr(const char *data_p, size_t data_size, ID seed) {
+inline ID HashStr(const char *data_p, size_t data_size, ID seed) {
   seed = ~seed;
   U32 crc = seed;
   const unsigned char *data = (const unsigned char *)data_p;
@@ -15211,7 +16939,7 @@ ID HashStr(const char *data_p, size_t data_size, ID seed) {
 // Default file functions
 #ifndef GUI_DISABLE_DEFAULT_FILE_FUNCTIONS
 
-FileHandle FileOpen(const char *filename, const char *mode) {
+inline FileHandle FileOpen(const char *filename, const char *mode) {
 #if defined(_WIN32) && !defined(GUI_DISABLE_WIN32_FUNCTIONS) &&                \
     !defined(__CYGWIN__) && !defined(__GNUC__)
   // We need a fopen() wrapper because MSVC/Windows fopen doesn't handle UTF-8
@@ -15237,15 +16965,15 @@ FileHandle FileOpen(const char *filename, const char *mode) {
 // We should in theory be using fseeko()/ftello() with off_t and
 // _fseeki64()/_ftelli64() with __int64, waiting for the PR that does that in a
 // very portable pre-C++11 zero-warnings way.
-bool FileClose(FileHandle f) { return fclose(f) == 0; }
-U64 FileGetSize(FileHandle f) {
+inline bool FileClose(FileHandle f) { return fclose(f) == 0; }
+inline U64 FileGetSize(FileHandle f) {
   long off = 0, sz = 0;
   return ((off = ftell(f)) != -1 && !fseek(f, 0, SEEK_END) &&
           (sz = ftell(f)) != -1 && !fseek(f, off, SEEK_SET))
              ? (U64)sz
              : (U64)-1;
 }
-U64 FileRead(void *data, U64 sz, U64 count, FileHandle f) {
+inline U64 FileRead(void *data, U64 sz, U64 count, FileHandle f) {
   return fread(data, (size_t)sz, (size_t)count, f);
 }
 inline U64 FileWrite(const void *data, U64 sz, U64 count, FileHandle f) {
@@ -15303,8 +17031,8 @@ GUI_MSVC_RUNTIME_CHECKS_OFF
 // A nearly-branchless UTF-8 decoder, based on work of Christopher Wellons
 // (https://github.com/skeeto/branchless-utf8). We handle UTF-8 decoding error
 // by skipping forward.
-int TextCharFromUtf8(unsigned int *out_char, const char *in_text,
-                     const char *in_text_end) {
+inline int TextCharFromUtf8(unsigned int *out_char, const char *in_text,
+                            const char *in_text_end) {
   static const char lengths[32] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                                    1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
                                    0, 0, 2, 2, 2, 2, 3, 3, 4, 0};
@@ -15396,7 +17124,7 @@ static inline int TextCharToUtf8_inline(char *buf, int buf_size,
   return 0;
 }
 
-const char *TextCharToUtf8(char out_buf[5], unsigned int c) {
+inline const char *TextCharToUtf8(char out_buf[5], unsigned int c) {
   int count = TextCharToUtf8_inline(out_buf, 5, c);
   out_buf[count] = 0;
   return out_buf;
@@ -15416,8 +17144,8 @@ static inline int TextCountUtf8BytesFromChar(unsigned int c) {
   return 3;
 }
 
-int TextStrToUtf8(char *out_buf, int out_buf_size, const Wchar *in_text,
-                  const Wchar *in_text_end) {
+inline int TextStrToUtf8(char *out_buf, int out_buf_size, const Wchar *in_text,
+                         const Wchar *in_text_end) {
   char *buf_p = out_buf;
   const char *buf_end = out_buf + out_buf_size;
   while (buf_p < buf_end - 1 && (!in_text_end || in_text < in_text_end) &&
@@ -15432,7 +17160,8 @@ int TextStrToUtf8(char *out_buf, int out_buf_size, const Wchar *in_text,
   return (int)(buf_p - out_buf);
 }
 
-int TextCountUtf8BytesFromStr(const Wchar *in_text, const Wchar *in_text_end) {
+inline int TextCountUtf8BytesFromStr(const Wchar *in_text,
+                                     const Wchar *in_text_end) {
   int bytes_count = 0;
   while ((!in_text_end || in_text < in_text_end) && *in_text) {
     unsigned int c = (unsigned int)(*in_text++);
@@ -15444,16 +17173,6 @@ int TextCountUtf8BytesFromStr(const Wchar *in_text, const Wchar *in_text_end) {
   return bytes_count;
 }
 
-const char *TextFindPreviousUtf8Codepoint(const char *in_text_start,
-                                          const char *in_text_curr) {
-  while (in_text_curr > in_text_start) {
-    in_text_curr--;
-    if ((*in_text_curr & 0xC0) != 0x80)
-      return in_text_curr;
-  }
-  return in_text_start;
-}
-
 GUI_MSVC_RUNTIME_CHECKS_RESTORE
 
 //-----------------------------------------------------------------------------
@@ -15462,7 +17181,7 @@ GUI_MSVC_RUNTIME_CHECKS_RESTORE
 // other API.
 //-----------------------------------------------------------------------------
 
-GUI_API U32 AlphaBlendColors(U32 col_a, U32 col_b) {
+GUI_API inline U32 AlphaBlendColors(U32 col_a, U32 col_b) {
   float t = ((col_b >> GUI_COL32_A_SHIFT) & 0xFF) / 255.f;
   int r = Lerp((int)(col_a >> GUI_COL32_R_SHIFT) & 0xFF,
                (int)(col_b >> GUI_COL32_R_SHIFT) & 0xFF, t);
@@ -15473,7 +17192,7 @@ GUI_API U32 AlphaBlendColors(U32 col_a, U32 col_b) {
   return GUI_COL32(r, g, b, 0xFF);
 }
 
-Vec4 Gui::ColorConvertU32ToFloat4(U32 in) {
+inline Vec4 Gui::ColorConvertU32ToFloat4(U32 in) {
   float s = 1.0f / 255.0f;
   return Vec4(((in >> GUI_COL32_R_SHIFT) & 0xFF) * s,
               ((in >> GUI_COL32_G_SHIFT) & 0xFF) * s,
@@ -15481,7 +17200,7 @@ Vec4 Gui::ColorConvertU32ToFloat4(U32 in) {
               ((in >> GUI_COL32_A_SHIFT) & 0xFF) * s);
 }
 
-U32 Gui::ColorConvertFloat4ToU32(const Vec4 &in) {
+inline U32 Gui::ColorConvertFloat4ToU32(const Vec4 &in) {
   U32 out;
   out = ((U32)GUI_F32_TO_INT8_SAT(in.x)) << GUI_COL32_R_SHIFT;
   out |= ((U32)GUI_F32_TO_INT8_SAT(in.y)) << GUI_COL32_G_SHIFT;
@@ -15493,8 +17212,8 @@ U32 Gui::ColorConvertFloat4ToU32(const Vec4 &in) {
 // Convert rgb floats ([0-1],[0-1],[0-1]) to hsv floats ([0-1],[0-1],[0-1]),
 // from Foley & van Dam p592 Optimized
 // http://lolengine.net/blog/2013/01/13/fast-rgb-to-hsv
-void Gui::ColorConvertRGBtoHSV(float r, float g, float b, float &out_h,
-                               float &out_s, float &out_v) {
+inline void Gui::ColorConvertRGBtoHSV(float r, float g, float b, float &out_h,
+                                      float &out_s, float &out_v) {
   float K = 0.f;
   if (g < b) {
     Swap(g, b);
@@ -15513,8 +17232,8 @@ void Gui::ColorConvertRGBtoHSV(float r, float g, float b, float &out_h,
 
 // Convert hsv floats ([0-1],[0-1],[0-1]) to rgb floats ([0-1],[0-1],[0-1]),
 // from Foley & van Dam p593 also http://en.wikipedia.org/wiki/HSL_and_HSV
-void Gui::ColorConvertHSVtoRGB(float h, float s, float v, float &out_r,
-                               float &out_g, float &out_b) {
+inline void Gui::ColorConvertHSVtoRGB(float h, float s, float v, float &out_r,
+                                      float &out_g, float &out_b) {
   if (s == 0.0f) {
     // gray
     out_r = out_g = out_b = v;
@@ -15589,7 +17308,7 @@ static Storage::StoragePair *LowerBound(Vector<Storage::StoragePair> &data,
 
 // For quicker full rebuild of a storage (instead of an incremental one), you
 // may add all your contents and then sort once.
-void Storage::BuildSortByKey() {
+inline void Storage::BuildSortByKey() {
   struct StaticFunc {
     static int GUI_CDECL PairComparerByID(const void *lhs, const void *rhs) {
       // We can't just do a subtraction because qsort uses signed integers and
@@ -15605,25 +17324,21 @@ void Storage::BuildSortByKey() {
         StaticFunc::PairComparerByID);
 }
 
-int Storage::GetInt(ID key, int default_val) const {
+inline int Storage::GetInt(ID key, int default_val) const {
   StoragePair *it = LowerBound(const_cast<Vector<StoragePair> &>(Data), key);
   if (it == Data.end() || it->key != key)
     return default_val;
   return it->val_i;
 }
 
-bool Storage::GetBool(ID key, bool default_val) const {
-  return GetInt(key, default_val ? 1 : 0) != 0;
-}
-
-float Storage::GetFloat(ID key, float default_val) const {
+inline float Storage::GetFloat(ID key, float default_val) const {
   StoragePair *it = LowerBound(const_cast<Vector<StoragePair> &>(Data), key);
   if (it == Data.end() || it->key != key)
     return default_val;
   return it->val_f;
 }
 
-void *Storage::GetVoidPtr(ID key) const {
+inline void *Storage::GetVoidPtr(ID key) const {
   StoragePair *it = LowerBound(const_cast<Vector<StoragePair> &>(Data), key);
   if (it == Data.end() || it->key != key)
     return NULL;
@@ -15632,25 +17347,21 @@ void *Storage::GetVoidPtr(ID key) const {
 
 // References are only valid until a new value is added to the storage. Calling
 // a Set***() function or a Get***Ref() function invalidates the pointer.
-int *Storage::GetIntRef(ID key, int default_val) {
+inline int *Storage::GetIntRef(ID key, int default_val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     it = Data.insert(it, StoragePair(key, default_val));
   return &it->val_i;
 }
 
-bool *Storage::GetBoolRef(ID key, bool default_val) {
-  return (bool *)GetIntRef(key, default_val ? 1 : 0);
-}
-
-float *Storage::GetFloatRef(ID key, float default_val) {
+inline float *Storage::GetFloatRef(ID key, float default_val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     it = Data.insert(it, StoragePair(key, default_val));
   return &it->val_f;
 }
 
-void **Storage::GetVoidPtrRef(ID key, void *default_val) {
+inline void **Storage::GetVoidPtrRef(ID key, void *default_val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     it = Data.insert(it, StoragePair(key, default_val));
@@ -15660,7 +17371,7 @@ void **Storage::GetVoidPtrRef(ID key, void *default_val) {
 // FIXME-OPT: Need a way to reuse the result of lower_bound when doing
 // GetInt()/SetInt() - not too bad because it only happens on explicit
 // interaction (maximum one a frame)
-void Storage::SetInt(ID key, int val) {
+inline void Storage::SetInt(ID key, int val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     Data.insert(it, StoragePair(key, val));
@@ -15668,9 +17379,7 @@ void Storage::SetInt(ID key, int val) {
     it->val_i = val;
 }
 
-void Storage::SetBool(ID key, bool val) { SetInt(key, val ? 1 : 0); }
-
-void Storage::SetFloat(ID key, float val) {
+inline void Storage::SetFloat(ID key, float val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     Data.insert(it, StoragePair(key, val));
@@ -15678,17 +17387,12 @@ void Storage::SetFloat(ID key, float val) {
     it->val_f = val;
 }
 
-void Storage::SetVoidPtr(ID key, void *val) {
+inline void Storage::SetVoidPtr(ID key, void *val) {
   StoragePair *it = LowerBound(Data, key);
   if (it == Data.end() || it->key != key)
     Data.insert(it, StoragePair(key, val));
   else
     it->val_p = val;
-}
-
-void Storage::SetAllInt(int v) {
-  for (int i = 0; i < Data.Size; i++)
-    Data[i].val_i = v;
 }
 
 //-----------------------------------------------------------------------------
@@ -15704,16 +17408,7 @@ inline TextFilter::TextFilter(const char *default_filter) //-V1077
   }
 }
 
-bool TextFilter::Draw(const char *label, float width) {
-  if (width != 0.0f)
-    Gui::SetNextItemWidth(width);
-  bool value_changed = Gui::InputText(label, InputBuf, GUI_ARRAYSIZE(InputBuf));
-  if (value_changed)
-    Build();
-  return value_changed;
-}
-
-void TextFilter::Build() {
+inline void TextFilter::Build() {
   Filters.resize(0);
   TextRange input_range(InputBuf, InputBuf + strlen(InputBuf));
   input_range.split(',', &Filters);
@@ -15731,7 +17426,8 @@ void TextFilter::Build() {
   }
 }
 
-bool TextFilter::PassFilter(const char *text, const char *text_end) const {
+inline bool TextFilter::PassFilter(const char *text,
+                                   const char *text_end) const {
   if (Filters.empty())
     return true;
 
@@ -15776,7 +17472,7 @@ bool TextFilter::PassFilter(const char *text, const char *text_end) const {
 
 char TextBuffer::EmptyString[1] = {0};
 
-void TextBuffer::append(const char *str, const char *str_end) {
+inline void TextBuffer::append(const char *str, const char *str_end) {
   int len = str_end ? (int)(str_end - str) : (int)strlen(str);
 
   // Add zero-terminator the first time
@@ -15792,7 +17488,7 @@ void TextBuffer::append(const char *str, const char *str_end) {
   Buf[write_off - 1 + len] = 0;
 }
 
-void TextBuffer::appendf(const char *fmt, ...) {
+inline void TextBuffer::appendf(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   appendfv(fmt, args);
@@ -15800,7 +17496,7 @@ void TextBuffer::appendf(const char *fmt, ...) {
 }
 
 // Helper: Text buffer for logging/accumulating text
-void TextBuffer::appendfv(const char *fmt, va_list args) {
+inline void TextBuffer::appendfv(const char *fmt, va_list args) {
   va_list args_copy;
   va_copy(args_copy, args);
 
@@ -15825,7 +17521,7 @@ void TextBuffer::appendfv(const char *fmt, va_list args) {
   va_end(args_copy);
 }
 
-void TextIndex::append(const char *base, int old_size, int new_size) {
+inline void TextIndex::append(const char *base, int old_size, int new_size) {
   GUI_ASSERT(old_size >= 0 && new_size >= old_size && new_size >= EndOffset);
   if (old_size == new_size)
     return;
@@ -15928,11 +17624,9 @@ static void ListClipper_SeekCursorForItem(ListClipper *clipper, int item_n) {
   ListClipper_SeekCursorAndSetupPrevLine(pos_y, clipper->ItemsHeight);
 }
 
-ListClipper::ListClipper() { memset(this, 0, sizeof(*this)); }
+inline ListClipper::ListClipper() { memset(this, 0, sizeof(*this)); }
 
-ListClipper::~ListClipper() { End(); }
-
-void ListClipper::Begin(int items_count, float items_height) {
+inline void ListClipper::Begin(int items_count, float items_height) {
   if (Ctx == NULL)
     Ctx = Gui::GetCurrentContext();
 
@@ -15960,7 +17654,7 @@ void ListClipper::Begin(int items_count, float items_height) {
   TempData = data;
 }
 
-void ListClipper::End() {
+inline void ListClipper::End() {
   if (ListClipperData *data = (ListClipperData *)TempData) {
     // In theory here we should assert that we are already at the right
     // position, but it seems saner to just seek at the end and not assert/crash
@@ -15983,7 +17677,7 @@ void ListClipper::End() {
   ItemsCount = -1;
 }
 
-void ListClipper::IncludeItemsByIndex(int item_begin, int item_end) {
+inline void ListClipper::IncludeItemsByIndex(int item_begin, int item_end) {
   ListClipperData *data = (ListClipperData *)TempData;
   GUI_ASSERT(DisplayStart < 0); // Only allowed after Begin() and if there has
                                 // not been a specified range yet.
@@ -16149,7 +17843,7 @@ static bool ListClipper_StepInternal(ListClipper *clipper) {
   return false;
 }
 
-bool ListClipper::Step() {
+inline bool ListClipper::Step() {
   Context &g = *Ctx;
   bool need_items_height = (ItemsHeight <= 0.0f);
   bool ret = ListClipper_StepInternal(this);
@@ -16174,33 +17868,33 @@ bool ListClipper::Step() {
 // [SECTION] STYLING
 //-----------------------------------------------------------------------------
 
-Style &Gui::GetStyle() {
+inline Style &Gui::GetStyle() {
   GUI_ASSERT(GGui != NULL &&
              "No current context. Did you call Gui::CreateContext() and "
              "Gui::SetCurrentContext() ?");
   return GGui->Style;
 }
 
-U32 Gui::GetColorU32(Col idx, float alpha_mul) {
+inline U32 Gui::GetColorU32(Col idx, float alpha_mul) {
   Style &style = GGui->Style;
   Vec4 c = style.Colors[idx];
   c.w *= style.Alpha * alpha_mul;
   return ColorConvertFloat4ToU32(c);
 }
 
-U32 Gui::GetColorU32(const Vec4 &col) {
+inline U32 Gui::GetColorU32(const Vec4 &col) {
   Style &style = GGui->Style;
   Vec4 c = col;
   c.w *= style.Alpha;
   return ColorConvertFloat4ToU32(c);
 }
 
-const Vec4 &Gui::GetStyleColorVec4(Col idx) {
+inline const Vec4 &Gui::GetStyleColorVec4(Col idx) {
   Style &style = GGui->Style;
   return style.Colors[idx];
 }
 
-U32 Gui::GetColorU32(U32 col) {
+inline U32 Gui::GetColorU32(U32 col) {
   Style &style = GGui->Style;
   if (style.Alpha >= 1.0f)
     return col;
@@ -16212,7 +17906,7 @@ U32 Gui::GetColorU32(U32 col) {
 
 // FIXME: This may incur a round-trip (if the end user got their data from a
 // float4) but eventually we aim to store the in-flight colors asU32
-void Gui::PushStyleColor(Col idx, U32 col) {
+inline void Gui::PushStyleColor(Col idx, U32 col) {
   Context &g = *GGui;
   ColorMod backup;
   backup.Col = idx;
@@ -16222,7 +17916,7 @@ void Gui::PushStyleColor(Col idx, U32 col) {
     g.Style.Colors[idx] = ColorConvertU32ToFloat4(col);
 }
 
-void Gui::PushStyleColor(Col idx, const Vec4 &col) {
+inline void Gui::PushStyleColor(Col idx, const Vec4 &col) {
   Context &g = *GGui;
   ColorMod backup;
   backup.Col = idx;
@@ -16232,7 +17926,7 @@ void Gui::PushStyleColor(Col idx, const Vec4 &col) {
     g.Style.Colors[idx] = col;
 }
 
-void Gui::PopStyleColor(int count) {
+inline void Gui::PopStyleColor(int count) {
   Context &g = *GGui;
   if (g.ColorStack.Size < count) {
     GUI_ASSERT_USER_ERROR(
@@ -16310,13 +18004,13 @@ static const DataVarInfo GStyleVarInfo[] = {
                    SeparatorTextPadding)}, // StyleVar_SeparatorTextPadding
 };
 
-const DataVarInfo *Gui::GetStyleVarInfo(StyleVar idx) {
+inline const DataVarInfo *Gui::GetStyleVarInfo(StyleVar idx) {
   GUI_ASSERT(idx >= 0 && idx < StyleVar_COUNT);
   GUI_STATIC_ASSERT(GUI_ARRAYSIZE(GStyleVarInfo) == StyleVar_COUNT);
   return &GStyleVarInfo[idx];
 }
 
-void Gui::PushStyleVar(StyleVar idx, float val) {
+inline void Gui::PushStyleVar(StyleVar idx, float val) {
   Context &g = *GGui;
   const DataVarInfo *var_info = GetStyleVarInfo(idx);
   if (var_info->Type == DataType_Float && var_info->Count == 1) {
@@ -16328,7 +18022,7 @@ void Gui::PushStyleVar(StyleVar idx, float val) {
   GUI_ASSERT_USER_ERROR(0, "Called PushStyleVar() variant with wrong type!");
 }
 
-void Gui::PushStyleVar(StyleVar idx, const Vec2 &val) {
+inline void Gui::PushStyleVar(StyleVar idx, const Vec2 &val) {
   Context &g = *GGui;
   const DataVarInfo *var_info = GetStyleVarInfo(idx);
   if (var_info->Type == DataType_Float && var_info->Count == 2) {
@@ -16340,7 +18034,7 @@ void Gui::PushStyleVar(StyleVar idx, const Vec2 &val) {
   GUI_ASSERT_USER_ERROR(0, "Called PushStyleVar() variant with wrong type!");
 }
 
-void Gui::PopStyleVar(int count) {
+inline void Gui::PopStyleVar(int count) {
   Context &g = *GGui;
   if (g.StyleVarStack.Size < count) {
     GUI_ASSERT_USER_ERROR(
@@ -16366,7 +18060,7 @@ void Gui::PopStyleVar(int count) {
   }
 }
 
-const char *Gui::GetStyleColorName(Col idx) {
+inline const char *Gui::GetStyleColorName(Col idx) {
   // Create switch-case from enum with regexp: Col_{.*}, --> case
   // Col_\1: return "\1";
   switch (idx) {
@@ -16490,22 +18184,11 @@ const char *Gui::GetStyleColorName(Col idx) {
 // Gui:: context.
 //-----------------------------------------------------------------------------
 
-const char *Gui::FindRenderedTextEnd(const char *text, const char *text_end) {
-  const char *text_display_end = text;
-  if (!text_end)
-    text_end = (const char *)-1;
-
-  while (text_display_end < text_end && *text_display_end != '\0' &&
-         (text_display_end[0] != '#' || text_display_end[1] != '#'))
-    text_display_end++;
-  return text_display_end;
-}
-
 // Internal Gui functions to render text
 // RenderText***() functions calls DrawList::AddText() calls
 // BitmapFont::RenderText()
-void Gui::RenderText(Vec2 pos, const char *text, const char *text_end,
-                     bool hide_text_after_hash) {
+inline void Gui::RenderText(Vec2 pos, const char *text, const char *text_end,
+                            bool hide_text_after_hash) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -16527,8 +18210,8 @@ void Gui::RenderText(Vec2 pos, const char *text, const char *text_end,
   }
 }
 
-void Gui::RenderTextWrapped(Vec2 pos, const char *text, const char *text_end,
-                            float wrap_width) {
+inline void Gui::RenderTextWrapped(Vec2 pos, const char *text,
+                                   const char *text_end, float wrap_width) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -16551,47 +18234,11 @@ void Gui::RenderTextWrapped(Vec2 pos, const char *text, const char *text_end,
 // as this is called from widget doing their own coarse clipping it's not very
 // valuable presently. Next time function will take better advantage of the
 // render function taking size into account for coarse clipping.
-void Gui::RenderTextClippedEx(DrawList *draw_list, const Vec2 &pos_min,
-                              const Vec2 &pos_max, const char *text,
-                              const char *text_display_end,
-                              const Vec2 *text_size_if_known, const Vec2 &align,
-                              const Rect *clip_rect) {
-  // Perform CPU side clipping for single clipped element to avoid using scissor
-  // state
-  Vec2 pos = pos_min;
-  const Vec2 text_size =
-      text_size_if_known ? *text_size_if_known
-                         : CalcTextSize(text, text_display_end, false, 0.0f);
 
-  const Vec2 *clip_min = clip_rect ? &clip_rect->Min : &pos_min;
-  const Vec2 *clip_max = clip_rect ? &clip_rect->Max : &pos_max;
-  bool need_clipping = (pos.x + text_size.x >= clip_max->x) ||
-                       (pos.y + text_size.y >= clip_max->y);
-  if (clip_rect) // If we had no explicit clipping rectangle then pos==clip_min
-    need_clipping |= (pos.x < clip_min->x) || (pos.y < clip_min->y);
-
-  // Align whole block. We should defer that to the better rendering function
-  // when we'll have support for individual line alignment.
-  if (align.x > 0.0f)
-    pos.x = Max(pos.x, pos.x + (pos_max.x - pos.x - text_size.x) * align.x);
-  if (align.y > 0.0f)
-    pos.y = Max(pos.y, pos.y + (pos_max.y - pos.y - text_size.y) * align.y);
-
-  // Render
-  if (need_clipping) {
-    Vec4 fine_clip_rect(clip_min->x, clip_min->y, clip_max->x, clip_max->y);
-    draw_list->AddText(NULL, 0.0f, pos, GetColorU32(Col_Text), text,
-                       text_display_end, 0.0f, &fine_clip_rect);
-  } else {
-    draw_list->AddText(NULL, 0.0f, pos, GetColorU32(Col_Text), text,
-                       text_display_end, 0.0f, NULL);
-  }
-}
-
-void Gui::RenderTextClipped(const Vec2 &pos_min, const Vec2 &pos_max,
-                            const char *text, const char *text_end,
-                            const Vec2 *text_size_if_known, const Vec2 &align,
-                            const Rect *clip_rect) {
+inline void Gui::RenderTextClipped(const Vec2 &pos_min, const Vec2 &pos_max,
+                                   const char *text, const char *text_end,
+                                   const Vec2 *text_size_if_known,
+                                   const Vec2 &align, const Rect *clip_rect) {
   // Hide anything after a '##' string
   const char *text_display_end = FindRenderedTextEnd(text, text_end);
   const int text_len = (int)(text_display_end - text);
@@ -16612,11 +18259,11 @@ void Gui::RenderTextClipped(const Vec2 &pos_min, const Vec2 &pos_max,
 // from actual clipping of text and limit of the ellipsis display. This is
 // because in the context of tabs we selectively hide part of the text when the
 // Close Button appears, but we don't want the ellipsis to move.
-void Gui::RenderTextEllipsis(DrawList *draw_list, const Vec2 &pos_min,
-                             const Vec2 &pos_max, float clip_max_x,
-                             float ellipsis_max_x, const char *text,
-                             const char *text_end_full,
-                             const Vec2 *text_size_if_known) {
+inline void Gui::RenderTextEllipsis(DrawList *draw_list, const Vec2 &pos_min,
+                                    const Vec2 &pos_max, float clip_max_x,
+                                    float ellipsis_max_x, const char *text,
+                                    const char *text_end_full,
+                                    const Vec2 *text_size_if_known) {
   Context &g = *GGui;
   if (text_end_full == NULL)
     text_end_full = FindRenderedTextEnd(text);
@@ -16689,8 +18336,8 @@ void Gui::RenderTextEllipsis(DrawList *draw_list, const Vec2 &pos_min,
 }
 
 // Render a rectangle shaped with optional rounding and borders
-void Gui::RenderFrame(Vec2 p_min, Vec2 p_max, U32 fill_col, bool border,
-                      float rounding) {
+inline void Gui::RenderFrame(Vec2 p_min, Vec2 p_max, U32 fill_col, bool border,
+                             float rounding) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   window->DrawList->AddRectFilled(p_min, p_max, fill_col, rounding);
@@ -16704,7 +18351,7 @@ void Gui::RenderFrame(Vec2 p_min, Vec2 p_max, U32 fill_col, bool border,
   }
 }
 
-void Gui::RenderFrameBorder(Vec2 p_min, Vec2 p_max, float rounding) {
+inline void Gui::RenderFrameBorder(Vec2 p_min, Vec2 p_max, float rounding) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   const float border_size = g.Style.FrameBorderSize;
@@ -16717,7 +18364,8 @@ void Gui::RenderFrameBorder(Vec2 p_min, Vec2 p_max, float rounding) {
   }
 }
 
-void Gui::RenderNavHighlight(const Rect &bb, ID id, NavHighlightFlags flags) {
+inline void Gui::RenderNavHighlight(const Rect &bb, ID id,
+                                    NavHighlightFlags flags) {
   Context &g = *GGui;
   if (id != g.NavId)
     return;
@@ -16751,9 +18399,9 @@ void Gui::RenderNavHighlight(const Rect &bb, ID id, NavHighlightFlags flags) {
   }
 }
 
-void Gui::RenderMouseCursor(Vec2 base_pos, float base_scale,
-                            MouseCursor mouse_cursor, U32 col_fill,
-                            U32 col_border, U32 col_shadow) {
+inline void Gui::RenderMouseCursor(Vec2 base_pos, float base_scale,
+                                   MouseCursor mouse_cursor, U32 col_fill,
+                                   U32 col_border, U32 col_shadow) {
   Context &g = *GGui;
   GUI_ASSERT(mouse_cursor > MouseCursor_None &&
              mouse_cursor < MouseCursor_COUNT);
@@ -16795,9 +18443,9 @@ void Gui::RenderMouseCursor(Vec2 base_pos, float base_scale,
 // (e.g. DLL) or allocate it yourself Note that we still point to some static
 // data and members (such as GFontAtlas), so the state instance you end up using
 // will point to the static data within its module
-Context *Gui::GetCurrentContext() { return GGui; }
+inline Context *Gui::GetCurrentContext() { return GGui; }
 
-void Gui::SetCurrentContext(Context *ctx) {
+inline void Gui::SetCurrentContext(Context *ctx) {
 #ifdef GUI_SET_CURRENT_CONTEXT_FUNC
   GUI_SET_CURRENT_CONTEXT_FUNC(ctx); // For custom thread-based hackery you
                                      // may want to have control over this.
@@ -16806,8 +18454,8 @@ void Gui::SetCurrentContext(Context *ctx) {
 #endif
 }
 
-void Gui::SetAllocatorFunctions(MemAllocFunc alloc_func, MemFreeFunc free_func,
-                                void *user_data) {
+inline void Gui::SetAllocatorFunctions(MemAllocFunc alloc_func,
+                                       MemFreeFunc free_func, void *user_data) {
   GAllocatorAllocFunc = alloc_func;
   GAllocatorFreeFunc = free_func;
   GAllocatorUserData = user_data;
@@ -16816,14 +18464,15 @@ void Gui::SetAllocatorFunctions(MemAllocFunc alloc_func, MemFreeFunc free_func,
 // This is provided to facilitate copying allocators from one static/DLL
 // boundary to another (e.g. retrieve default allocator of your executable
 // address space)
-void Gui::GetAllocatorFunctions(MemAllocFunc *p_alloc_func,
-                                MemFreeFunc *p_free_func, void **p_user_data) {
+inline void Gui::GetAllocatorFunctions(MemAllocFunc *p_alloc_func,
+                                       MemFreeFunc *p_free_func,
+                                       void **p_user_data) {
   *p_alloc_func = GAllocatorAllocFunc;
   *p_free_func = GAllocatorFreeFunc;
   *p_user_data = GAllocatorUserData;
 }
 
-Context *Gui::CreateContext(FontAtlas *shared_font_atlas) {
+inline Context *Gui::CreateContext(FontAtlas *shared_font_atlas) {
   Context *prev_ctx = GetCurrentContext();
   Context *ctx = GUI_NEW(Context)(shared_font_atlas);
   SetCurrentContext(ctx);
@@ -16834,7 +18483,7 @@ Context *Gui::CreateContext(FontAtlas *shared_font_atlas) {
   return ctx;
 }
 
-void Gui::DestroyContext(Context *ctx) {
+inline void Gui::DestroyContext(Context *ctx) {
   Context *prev_ctx = GetCurrentContext();
   if (ctx == NULL) //-V1051
     ctx = prev_ctx;
@@ -16857,7 +18506,7 @@ static const LocEntry GLocalizationEntriesEnUS[] = {
     {LocKey_WindowingUntitled, "(Untitled)"},
 };
 
-void Gui::Initialize() {
+inline void Gui::Initialize() {
   Context &g = *GGui;
   GUI_ASSERT(!g.Initialized && !g.SettingsLoaded);
 
@@ -16901,7 +18550,7 @@ void Gui::Initialize() {
 }
 
 // This function is merely here to free heap allocations.
-void Gui::Shutdown() {
+inline void Gui::Shutdown() {
   // The fonts atlas can be used prior to calling NewFrame(), so we clear it
   // even if g.Initialized is FALSE (which would happen if we never called
   // NewFrame)
@@ -16982,7 +18631,7 @@ void Gui::Shutdown() {
 }
 
 // No specific ordering/dependency support, will see as needed
-ID Gui::AddContextHook(Context *ctx, const ContextHook *hook) {
+inline ID Gui::AddContextHook(Context *ctx, const ContextHook *hook) {
   Context &g = *ctx;
   GUI_ASSERT(hook->Callback != NULL && hook->HookId == 0 &&
              hook->Type != ContextHookType_PendingRemoval_);
@@ -16992,7 +18641,7 @@ ID Gui::AddContextHook(Context *ctx, const ContextHook *hook) {
 }
 
 // Deferred removal, avoiding issue with changing vector while iterating it
-void Gui::RemoveContextHook(Context *ctx, ID hook_id) {
+inline void Gui::RemoveContextHook(Context *ctx, ID hook_id) {
   Context &g = *ctx;
   GUI_ASSERT(hook_id != 0);
   for (ContextHook &hook : g.Hooks)
@@ -17002,12 +18651,6 @@ void Gui::RemoveContextHook(Context *ctx, ID hook_id) {
 
 // Call context hooks (used by e.g. test engine)
 // We assume a small number of hooks so all stored in same array
-void Gui::CallContextHooks(Context *ctx, ContextHookType hook_type) {
-  Context &g = *ctx;
-  for (ContextHook &hook : g.Hooks)
-    if (hook.Type == hook_type)
-      hook.Callback(&g, &hook);
-}
 
 //-----------------------------------------------------------------------------
 // [SECTION] MAIN CODE (most of the code! lots of stuff, needs tidying up!)
@@ -17015,7 +18658,7 @@ void Gui::CallContextHooks(Context *ctx, ContextHookType hook_type) {
 
 // Window is mostly a dumb struct. It merely has a constructor and a few
 // helper methods
-Window::Window(Context *ctx, const char *name) : DrawListInst(NULL) {
+inline Window::Window(Context *ctx, const char *name) : DrawListInst(NULL) {
   memset(this, 0, sizeof(*this));
   Ctx = ctx;
   Name = Strdup(name);
@@ -17041,13 +18684,13 @@ Window::Window(Context *ctx, const char *name) : DrawListInst(NULL) {
       Vec2(FLT_MAX, FLT_MAX);
 }
 
-Window::~Window() {
+inline Window::~Window() {
   GUI_ASSERT(DrawList == &DrawListInst);
   GUI_DELETE(Name);
   ColumnsStorage.clear_destruct();
 }
 
-ID Window::GetID(const char *str, const char *str_end) {
+inline ID Window::GetID(const char *str, const char *str_end) {
   ::ID seed = IDStack.back();
   ::ID id = HashStr(str, str_end ? (str_end - str) : 0, seed);
   Context &g = *Ctx;
@@ -17056,7 +18699,7 @@ ID Window::GetID(const char *str, const char *str_end) {
   return id;
 }
 
-ID Window::GetID(const void *ptr) {
+inline ID Window::GetID(const void *ptr) {
   ::ID seed = IDStack.back();
   ::ID id = HashData(&ptr, sizeof(void *), seed);
   Context &g = *Ctx;
@@ -17065,7 +18708,7 @@ ID Window::GetID(const void *ptr) {
   return id;
 }
 
-ID Window::GetID(int n) {
+inline ID Window::GetID(int n) {
   ::ID seed = IDStack.back();
   ::ID id = HashData(&n, sizeof(n), seed);
   Context &g = *Ctx;
@@ -17076,7 +18719,7 @@ ID Window::GetID(int n) {
 
 // This is only used in rare/specific situations to manufacture an ID out of
 // nowhere.
-ID Window::GetIDFromRectangle(const ::Rect &r_abs) {
+inline ID Window::GetIDFromRectangle(const ::Rect &r_abs) {
   ::ID seed = IDStack.back();
   ::Rect r_rel = Gui::WindowRectAbsToRel(this, r_abs);
   ::ID id = HashData(&r_rel, sizeof(r_rel), seed);
@@ -17101,7 +18744,7 @@ static void SetCurrentWindow(Window *window) {
 // hold useful data) This should have no noticeable visual effect. When the
 // window reappear however, expect new allocation/buffer growth/copy cost.
 
-void Gui::SetActiveID(ID id, Window *window) {
+inline void Gui::SetActiveID(ID id, Window *window) {
   Context &g = *GGui;
 
   // Clear previous active id
@@ -17168,7 +18811,7 @@ void Gui::SetActiveID(ID id, Window *window) {
 // Code not using ItemAdd() may need to call this manually otherwise ActiveId
 // will be cleared. In GUI_VERSION_NUM < 18717 this was called by GetID().
 
-void Gui::MarkItemEdited(ID id) {
+inline void Gui::MarkItemEdited(ID id) {
   // This marking is solely to be able to provide info for
   // IsItemDeactivatedAfterEdit(). ActiveId might have been released by the time
   // we call this (as in the typical press/release button behavior) but still
@@ -17217,7 +18860,7 @@ static HoveredFlags ApplyHoverFlagsForTooltip(HoveredFlags user_flags,
 // with IsItemHovered()
 // - this should work even for non-interactive items that have no ID, so we
 // cannot use LastItemId
-bool Gui::IsItemHovered(HoveredFlags flags) {
+inline bool Gui::IsItemHovered(HoveredFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT((flags & ~HoveredFlags_AllowedMaskForIsItemHovered) == 0 &&
@@ -17333,7 +18976,7 @@ bool Gui::IsItemHovered(HoveredFlags flags) {
 // 'item_flags = g.LastItemData.InFlags'.
 // - Rare: otherwise you may pass 'item_flags = 0' (ItemFlags_None) unless
 // you want to benefit from special behavior handled by ItemHoverable.
-bool Gui::ItemHoverable(const Rect &bb, ID id, ItemFlags item_flags) {
+inline bool Gui::ItemHoverable(const Rect &bb, ID id, ItemFlags item_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (g.HoveredWindow != window)
@@ -17411,7 +19054,7 @@ bool Gui::ItemHoverable(const Rect &bb, ID id, ItemFlags item_flags) {
 // g.LastItemData.DisplayRect.
 
 // GUI_ALLOC() == Gui::MemAlloc()
-void *Gui::MemAlloc(size_t size) {
+inline void *Gui::MemAlloc(size_t size) {
   void *ptr = (*GAllocatorAllocFunc)(size, GAllocatorUserData);
 #ifndef GUI_DISABLE_DEBUG_TOOLS
   if (Context *ctx = GGui)
@@ -17421,7 +19064,7 @@ void *Gui::MemAlloc(size_t size) {
 }
 
 // GUI_FREE() == Gui::MemFree()
-void Gui::MemFree(void *ptr) {
+inline void Gui::MemFree(void *ptr) {
 #ifndef GUI_DISABLE_DEBUG_TOOLS
   if (ptr != NULL)
     if (Context *ctx = GGui)
@@ -17433,8 +19076,8 @@ void Gui::MemFree(void *ptr) {
 // We record the number of allocation in recent frames, as a way to
 // audit/sanitize our guiding principles of "no allocations on idle/repeating
 // frames"
-void Gui::DebugAllocHook(DebugAllocInfo *info, int frame_count, void *ptr,
-                         size_t size) {
+inline void Gui::DebugAllocHook(DebugAllocInfo *info, int frame_count,
+                                void *ptr, size_t size) {
   DebugAllocEntry *entry = &info->LastEntriesBuf[info->LastEntriesIdx];
   GUI_UNUSED(ptr);
   if (entry->FrameCount != frame_count) {
@@ -17455,20 +19098,20 @@ void Gui::DebugAllocHook(DebugAllocInfo *info, int frame_count, void *ptr,
   }
 }
 
-const char *Gui::GetClipboardText() {
+inline const char *Gui::GetClipboardText() {
   Context &g = *GGui;
   return g.IO.GetClipboardTextFn
              ? g.IO.GetClipboardTextFn(g.IO.ClipboardUserData)
              : "";
 }
 
-void Gui::SetClipboardText(const char *text) {
+inline void Gui::SetClipboardText(const char *text) {
   Context &g = *GGui;
   if (g.IO.SetClipboardTextFn)
     g.IO.SetClipboardTextFn(g.IO.ClipboardUserData, text);
 }
 
-IO &Gui::GetIO() {
+inline IO &Gui::GetIO() {
   GUI_ASSERT(GGui != NULL &&
              "No current context. Did you call Gui::CreateContext() and "
              "Gui::SetCurrentContext() ?");
@@ -17477,15 +19120,15 @@ IO &Gui::GetIO() {
 
 // Pass this to your backend rendering function! Valid after Render() and until
 // the next call to NewFrame()
-DrawData *Gui::GetDrawData() {
+inline DrawData *Gui::GetDrawData() {
   Context &g = *GGui;
   ViewportP *viewport = g.Viewports[0];
   return viewport->DrawDataP.Valid ? &viewport->DrawDataP : NULL;
 }
 
-double Gui::GetTime() { return GGui->Time; }
+inline double Gui::GetTime() { return GGui->Time; }
 
-int Gui::GetFrameCount() { return GGui->FrameCount; }
+inline int Gui::GetFrameCount() { return GGui->FrameCount; }
 
 static DrawList *GetViewportBgFgDrawList(ViewportP *viewport,
                                          size_t drawlist_no,
@@ -17512,29 +19155,29 @@ static DrawList *GetViewportBgFgDrawList(ViewportP *viewport,
   return draw_list;
 }
 
-DrawList *Gui::GetBackgroundDrawList(Viewport *viewport) {
+inline DrawList *Gui::GetBackgroundDrawList(Viewport *viewport) {
   return GetViewportBgFgDrawList((ViewportP *)viewport, 0, "##Background");
 }
 
-DrawList *Gui::GetBackgroundDrawList() {
+inline DrawList *Gui::GetBackgroundDrawList() {
   Context &g = *GGui;
   return GetBackgroundDrawList(g.Viewports[0]);
 }
 
-DrawList *Gui::GetForegroundDrawList(Viewport *viewport) {
+inline DrawList *Gui::GetForegroundDrawList(Viewport *viewport) {
   return GetViewportBgFgDrawList((ViewportP *)viewport, 1, "##Foreground");
 }
 
-DrawList *Gui::GetForegroundDrawList() {
+inline DrawList *Gui::GetForegroundDrawList() {
   Context &g = *GGui;
   return GetForegroundDrawList(g.Viewports[0]);
 }
 
-DrawListSharedData *Gui::GetDrawListSharedData() {
+inline DrawListSharedData *Gui::GetDrawListSharedData() {
   return &GGui->DrawListSharedData;
 }
 
-void Gui::StartMouseMovingWindow(Window *window) {
+inline void Gui::StartMouseMovingWindow(Window *window) {
   // Set ActiveId even if the _NoMove flag is set. Without it, dragging away
   // from a window with _NoMove would activate hover on other windows. We _also_
   // call this when clicking in a window empty space when
@@ -17566,7 +19209,7 @@ void Gui::StartMouseMovingWindow(Window *window) {
 // that BeginDragDropSource() is setting all g.ActiveIdUsingXXXX flags to
 // inhibit navigation inputs, but if we should more thoroughly test cases where
 // g.ActiveId or g.MovingWindow gets changed and not the other.
-void Gui::UpdateMouseMovingWindowNewFrame() {
+inline void Gui::UpdateMouseMovingWindowNewFrame() {
   Context &g = *GGui;
   if (g.MovingWindow != NULL) {
     // We actually want to move the root window. g.MovingWindow == window we
@@ -17597,7 +19240,7 @@ void Gui::UpdateMouseMovingWindowNewFrame() {
 
 // Initiate moving window when clicking on empty space or title bar.
 // Handle left-click and right-click focus.
-void Gui::UpdateMouseMovingWindowEndFrame() {
+inline void Gui::UpdateMouseMovingWindowEndFrame() {
   Context &g = *GGui;
   if (g.ActiveId != 0 || g.HoveredId != 0)
     return;
@@ -17661,7 +19304,7 @@ static bool IsWindowActiveAndVisible(Window *window) {
 // The reason this is exposed in gui_internal.hpp is: on touch-based system that
 // don't have hovering, we want to dispatch inputs to the right target (imgui vs
 // gui+app)
-void Gui::UpdateHoveredWindowAndCaptureFlags() {
+inline void Gui::UpdateHoveredWindowAndCaptureFlags() {
   Context &g = *GGui;
   IO &io = g.IO;
   g.WindowsHoverPadding =
@@ -17762,7 +19405,7 @@ void Gui::UpdateHoveredWindowAndCaptureFlags() {
                          : false;
 }
 
-void Gui::NewFrame() {
+inline void Gui::NewFrame() {
   GUI_ASSERT(GGui != NULL &&
              "No current context. Did you call Gui::CreateContext() and "
              "Gui::SetCurrentContext() ?");
@@ -18183,15 +19826,16 @@ static void InitViewportDrawData(ViewportP *viewport) {
 //   simultaneously tend to use the more specialized
 //   SetWindowClipRectBeforeSetChannel() to avoid extraneous updates of
 //   underlying DrawCmds.
-void Gui::PushClipRect(const Vec2 &clip_rect_min, const Vec2 &clip_rect_max,
-                       bool intersect_with_current_clip_rect) {
+inline void Gui::PushClipRect(const Vec2 &clip_rect_min,
+                              const Vec2 &clip_rect_max,
+                              bool intersect_with_current_clip_rect) {
   Window *window = GetCurrentWindow();
   window->DrawList->PushClipRect(clip_rect_min, clip_rect_max,
                                  intersect_with_current_clip_rect);
   window->ClipRect = window->DrawList->_ClipRectStack.back();
 }
 
-void Gui::PopClipRect() {
+inline void Gui::PopClipRect() {
   Window *window = GetCurrentWindow();
   window->DrawList->PopClipRect();
   window->ClipRect = window->DrawList->_ClipRectStack.back();
@@ -18233,7 +19877,7 @@ static void Gui::RenderDimmedBackgroundBehindWindow(Window *window, U32 col) {
   }
 }
 
-Window *
+inline Window *
 Gui::FindBottomMostVisibleWindowWithinBeginStack(Window *parent_window) {
   Context &g = *GGui;
   Window *bottom_most_visible_window = parent_window;
@@ -18297,7 +19941,7 @@ static void Gui::RenderDimmedBackgrounds() {
 
 // This is normally called by Render(). You may want to call it directly if you
 // want to avoid calling Render() but the gain will be very minimal.
-void Gui::EndFrame() {
+inline void Gui::EndFrame() {
   Context &g = *GGui;
   GUI_ASSERT(g.Initialized);
 
@@ -18404,7 +20048,7 @@ void Gui::EndFrame() {
 // (As with anything within the Gui:: namspace this doesn't touch your GPU or
 // graphics API at all: it is the role of the Gui_ImplXXXX_RenderDrawData()
 // function provided by the renderer backend)
-void Gui::Render() {
+inline void Gui::Render() {
   Context &g = *GGui;
   GUI_ASSERT(g.Initialized);
 
@@ -18488,8 +20132,9 @@ void Gui::Render() {
 
 // Calculate text size. Text can be multi-line. Optionally ignore text after a
 // ## marker. CalcTextSize("") should return Vec2(0.0f, g.FontSize)
-Vec2 Gui::CalcTextSize(const char *text, const char *text_end,
-                       bool hide_text_after_double_hash, float wrap_width) {
+inline Vec2 Gui::CalcTextSize(const char *text, const char *text_end,
+                              bool hide_text_after_double_hash,
+                              float wrap_width) {
   Context &g = *GGui;
 
   const char *text_display_end;
@@ -18580,14 +20225,14 @@ static void FindHoveredWindow() {
   g.HoveredWindowUnderMovingWindow = hovered_window_ignoring_moving_window;
 }
 
-bool Gui::IsItemActive() {
+inline bool Gui::IsItemActive() {
   Context &g = *GGui;
   if (g.ActiveId)
     return g.ActiveId == g.LastItemData.ID;
   return false;
 }
 
-bool Gui::IsItemActivated() {
+inline bool Gui::IsItemActivated() {
   Context &g = *GGui;
   if (g.ActiveId)
     if (g.ActiveId == g.LastItemData.ID &&
@@ -18596,7 +20241,7 @@ bool Gui::IsItemActivated() {
   return false;
 }
 
-bool Gui::IsItemDeactivated() {
+inline bool Gui::IsItemDeactivated() {
   Context &g = *GGui;
   if (g.LastItemData.StatusFlags & ItemStatusFlags_HasDeactivated)
     return (g.LastItemData.StatusFlags & ItemStatusFlags_Deactivated) != 0;
@@ -18604,7 +20249,7 @@ bool Gui::IsItemDeactivated() {
           g.ActiveIdPreviousFrame != 0 && g.ActiveId != g.LastItemData.ID);
 }
 
-bool Gui::IsItemDeactivatedAfterEdit() {
+inline bool Gui::IsItemDeactivatedAfterEdit() {
   Context &g = *GGui;
   return IsItemDeactivated() &&
          (g.ActiveIdPreviousFrameHasBeenEditedBefore ||
@@ -18612,7 +20257,7 @@ bool Gui::IsItemDeactivatedAfterEdit() {
 }
 
 // == GetItemID() == GetFocusID()
-bool Gui::IsItemFocused() {
+inline bool Gui::IsItemFocused() {
   Context &g = *GGui;
   if (g.NavId != g.LastItemData.ID || g.NavId == 0)
     return false;
@@ -18622,21 +20267,14 @@ bool Gui::IsItemFocused() {
 // Important: this can be useful but it is NOT equivalent to the behavior of
 // e.g.Button()! Most widgets have specific reactions based on mouse-up/down
 // state, mouse position etc.
-bool Gui::IsItemClicked(MouseButton mouse_button) {
+inline bool Gui::IsItemClicked(MouseButton mouse_button) {
   return IsMouseClicked(mouse_button) && IsItemHovered(HoveredFlags_None);
 }
 
-bool Gui::IsItemToggledOpen() {
+inline bool Gui::IsItemToggledOpen() {
   Context &g = *GGui;
   return (g.LastItemData.StatusFlags & ItemStatusFlags_ToggledOpen) ? true
                                                                     : false;
-}
-
-bool Gui::IsItemToggledSelection() {
-  Context &g = *GGui;
-  return (g.LastItemData.StatusFlags & ItemStatusFlags_ToggledSelection)
-             ? true
-             : false;
 }
 
 // IMPORTANT: If you are trying to check whether your mouse should be dispatched
@@ -18644,27 +20282,27 @@ bool Gui::IsItemToggledSelection() {
 // Use the 'io.WantCaptureMouse' boolean for that! Refer to FAQ entry "How can I
 // tell whether to dispatch mouse/keyboard to Dear Gui or my application?" for
 // details.
-bool Gui::IsAnyItemHovered() {
+inline bool Gui::IsAnyItemHovered() {
   Context &g = *GGui;
   return g.HoveredId != 0 || g.HoveredIdPreviousFrame != 0;
 }
 
-bool Gui::IsAnyItemActive() {
+inline bool Gui::IsAnyItemActive() {
   Context &g = *GGui;
   return g.ActiveId != 0;
 }
 
-bool Gui::IsAnyItemFocused() {
+inline bool Gui::IsAnyItemFocused() {
   Context &g = *GGui;
   return g.NavId != 0 && !g.NavDisableHighlight;
 }
 
-bool Gui::IsItemVisible() {
+inline bool Gui::IsItemVisible() {
   Context &g = *GGui;
   return (g.LastItemData.StatusFlags & ItemStatusFlags_Visible) != 0;
 }
 
-bool Gui::IsItemEdited() {
+inline bool Gui::IsItemEdited() {
   Context &g = *GGui;
   return (g.LastItemData.StatusFlags & ItemStatusFlags_Edited) != 0;
 }
@@ -18673,7 +20311,7 @@ bool Gui::IsItemEdited() {
 // This works by requiring HoveredId to match for two subsequent frames,
 // so if a following items overwrite it our interactions will naturally be
 // disabled.
-void Gui::SetNextItemAllowOverlap() {
+inline void Gui::SetNextItemAllowOverlap() {
   Context &g = *GGui;
   g.NextItemData.ItemFlags |= ItemFlags_AllowOverlap;
 }
@@ -18682,7 +20320,7 @@ void Gui::SetNextItemAllowOverlap() {
 // Allow last item to be overlapped by a subsequent item. Both may be activated
 // during the same frame before the later one takes priority.
 // FIXME-LEGACY: Use SetNextItemAllowOverlap() *before* your item instead.
-void Gui::SetItemAllowOverlap() {
+inline void Gui::SetItemAllowOverlap() {
   Context &g = *GGui;
   ID id = g.LastItemData.ID;
   if (g.HoveredId == id)
@@ -18697,7 +20335,7 @@ void Gui::SetItemAllowOverlap() {
 // FIXME: It might be undesirable that this will likely disable KeyOwner-aware
 // shortcuts systems. Consider a more fine-tuned version for the two users of
 // this function.
-void Gui::SetActiveIdUsingAllKeyboardKeys() {
+inline void Gui::SetActiveIdUsingAllKeyboardKeys() {
   Context &g = *GGui;
   GUI_ASSERT(g.ActiveId != 0);
   g.ActiveIdUsingNavDirMask = (1 << Dir_COUNT) - 1;
@@ -18705,22 +20343,22 @@ void Gui::SetActiveIdUsingAllKeyboardKeys() {
   NavMoveRequestCancel();
 }
 
-ID Gui::GetItemID() {
+inline ID Gui::GetItemID() {
   Context &g = *GGui;
   return g.LastItemData.ID;
 }
 
-Vec2 Gui::GetItemRectMin() {
+inline Vec2 Gui::GetItemRectMin() {
   Context &g = *GGui;
   return g.LastItemData.Rect.Min;
 }
 
-Vec2 Gui::GetItemRectMax() {
+inline Vec2 Gui::GetItemRectMax() {
   Context &g = *GGui;
   return g.LastItemData.Rect.Max;
 }
 
-Vec2 Gui::GetItemRectSize() {
+inline Vec2 Gui::GetItemRectSize() {
   Context &g = *GGui;
   return g.LastItemData.Rect.GetSize();
 }
@@ -18729,19 +20367,20 @@ Vec2 Gui::GetItemRectSize() {
 // false' parameter instead of 'ChildFlags child_flags = 0'.
 // ChildFlags_Border is defined as always == 1 in order to allow old code
 // passing 'true'.
-bool Gui::BeginChild(const char *str_id, const Vec2 &size_arg,
-                     ChildFlags child_flags, WindowFlags window_flags) {
+inline bool Gui::BeginChild(const char *str_id, const Vec2 &size_arg,
+                            ChildFlags child_flags, WindowFlags window_flags) {
   ID id = GetCurrentWindow()->GetID(str_id);
   return BeginChildEx(str_id, id, size_arg, child_flags, window_flags);
 }
 
-bool Gui::BeginChild(ID id, const Vec2 &size_arg, ChildFlags child_flags,
-                     WindowFlags window_flags) {
+inline bool Gui::BeginChild(ID id, const Vec2 &size_arg, ChildFlags child_flags,
+                            WindowFlags window_flags) {
   return BeginChildEx(NULL, id, size_arg, child_flags, window_flags);
 }
 
-bool Gui::BeginChildEx(const char *name, ID id, const Vec2 &size_arg,
-                       ChildFlags child_flags, WindowFlags window_flags) {
+inline bool Gui::BeginChildEx(const char *name, ID id, const Vec2 &size_arg,
+                              ChildFlags child_flags,
+                              WindowFlags window_flags) {
   Context &g = *GGui;
   Window *parent_window = g.CurrentWindow;
   GUI_ASSERT(id != 0);
@@ -18874,7 +20513,7 @@ bool Gui::BeginChildEx(const char *name, ID id, const Vec2 &size_arg,
   return ret;
 }
 
-void Gui::EndChild() {
+inline void Gui::EndChild() {
   Context &g = *GGui;
   Window *child_window = g.CurrentWindow;
 
@@ -19176,7 +20815,7 @@ static Vec2 CalcWindowAutoFitSize(Window *window, const Vec2 &size_contents) {
   }
 }
 
-Vec2 Gui::CalcWindowNextAutoFitSize(Window *window) {
+inline Vec2 Gui::CalcWindowNextAutoFitSize(Window *window) {
   Vec2 size_contents_current;
   Vec2 size_contents_ideal;
   CalcWindowContentSizes(window, &size_contents_current, &size_contents_ideal);
@@ -19263,7 +20902,7 @@ static Rect GetResizeBorderRect(Window *window, int border_n,
 }
 
 // 0..3: corners (Lower-right, Lower-left, Unused, Unused)
-ID Gui::GetWindowResizeCornerID(Window *window, int n) {
+inline ID Gui::GetWindowResizeCornerID(Window *window, int n) {
   GUI_ASSERT(n >= 0 && n < 4);
   ID id = window->ID;
   id = HashStr("#RESIZE", 0, id);
@@ -19272,7 +20911,7 @@ ID Gui::GetWindowResizeCornerID(Window *window, int n) {
 }
 
 // Borders (Left, Right, Up, Down)
-ID Gui::GetWindowResizeBorderID(Window *window, Dir dir) {
+inline ID Gui::GetWindowResizeBorderID(Window *window, Dir dir) {
   GUI_ASSERT(dir >= 0 && dir < 4);
   int n = (int)dir + 4;
   ID id = window->ID;
@@ -19873,8 +21512,9 @@ void Gui::RenderWindowTitleBarContents(Window *window,
                     style.WindowTitleAlign, &clip_r);
 }
 
-void Gui::UpdateWindowParentAndRootLinks(Window *window, WindowFlags flags,
-                                         Window *parent_window) {
+inline void Gui::UpdateWindowParentAndRootLinks(Window *window,
+                                                WindowFlags flags,
+                                                Window *parent_window) {
   window->ParentWindow = parent_window;
   window->RootWindow = window->RootWindowPopupTree =
       window->RootWindowForTitleBarHighlight = window->RootWindowForNav =
@@ -19929,7 +21569,7 @@ void Gui::UpdateWindowParentAndRootLinks(Window *window, WindowFlags flags,
 // - Passing 'bool* p_open' displays a Close button on the upper-right corner of
 // the window, the pointed value will be set to false when the button is
 // pressed.
-bool Gui::Begin(const char *name, bool *p_open, WindowFlags flags) {
+inline bool Gui::Begin(const char *name, bool *p_open, WindowFlags flags) {
   Context &g = *GGui;
   const Style &style = g.Style;
   GUI_ASSERT(name != NULL && name[0] != '\0'); // Window name required
@@ -20876,7 +22516,7 @@ bool Gui::Begin(const char *name, bool *p_open, WindowFlags flags) {
   return !window->SkipItems;
 }
 
-void Gui::End() {
+inline void Gui::End() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -20922,7 +22562,7 @@ void Gui::End() {
                        : g.CurrentWindowStack.back().Window);
 }
 
-void Gui::BringWindowToFocusFront(Window *window) {
+inline void Gui::BringWindowToFocusFront(Window *window) {
   Context &g = *GGui;
   GUI_ASSERT(window == window->RootWindow);
 
@@ -20941,7 +22581,7 @@ void Gui::BringWindowToFocusFront(Window *window) {
   window->FocusOrder = (short)new_order;
 }
 
-void Gui::BringWindowToDisplayFront(Window *window) {
+inline void Gui::BringWindowToDisplayFront(Window *window) {
   Context &g = *GGui;
   Window *current_front_window = g.Windows.back();
   if (current_front_window == window ||
@@ -20958,7 +22598,7 @@ void Gui::BringWindowToDisplayFront(Window *window) {
     }
 }
 
-void Gui::BringWindowToDisplayBack(Window *window) {
+inline void Gui::BringWindowToDisplayBack(Window *window) {
   Context &g = *GGui;
   if (g.Windows[0] == window)
     return;
@@ -20970,7 +22610,8 @@ void Gui::BringWindowToDisplayBack(Window *window) {
     }
 }
 
-void Gui::BringWindowToDisplayBehind(Window *window, Window *behind_window) {
+inline void Gui::BringWindowToDisplayBehind(Window *window,
+                                            Window *behind_window) {
   GUI_ASSERT(window != NULL && behind_window != NULL);
   Context &g = *GGui;
   window = window->RootWindow;
@@ -20990,7 +22631,7 @@ void Gui::BringWindowToDisplayBehind(Window *window, Window *behind_window) {
 
 // Moving window to front of display and set focus (which happens to be back of
 // our sorted list)
-void Gui::FocusWindow(Window *window, FocusRequestFlags flags) {
+inline void Gui::FocusWindow(Window *window, FocusRequestFlags flags) {
   Context &g = *GGui;
 
   // Modal check?
@@ -21055,10 +22696,10 @@ void Gui::FocusWindow(Window *window, FocusRequestFlags flags) {
     BringWindowToDisplayFront(display_front_window);
 }
 
-void Gui::FocusTopMostWindowUnderOne(Window *under_this_window,
-                                     Window *ignore_window,
-                                     Viewport *filter_viewport,
-                                     FocusRequestFlags flags) {
+inline void Gui::FocusTopMostWindowUnderOne(Window *under_this_window,
+                                            Window *ignore_window,
+                                            Viewport *filter_viewport,
+                                            FocusRequestFlags flags) {
   Context &g = *GGui;
   GUI_UNUSED(filter_viewport); // Unused in master branch.
   int start_idx = g.WindowsFocusOrder.Size - 1;
@@ -21091,7 +22732,7 @@ void Gui::FocusTopMostWindowUnderOne(Window *under_this_window,
 
 // Important: this alone doesn't alter current DrawList state. This is called
 // by PushFont/PopFont only.
-void Gui::SetCurrentFont(Font *font) {
+inline void Gui::SetCurrentFont(Font *font) {
   Context &g = *GGui;
   GUI_ASSERT(
       font &&
@@ -21110,7 +22751,7 @@ void Gui::SetCurrentFont(Font *font) {
   g.DrawListSharedData.FontSize = g.FontSize;
 }
 
-void Gui::PushFont(Font *font) {
+inline void Gui::PushFont(Font *font) {
   Context &g = *GGui;
   if (!font)
     font = GetDefaultFont();
@@ -21119,14 +22760,14 @@ void Gui::PushFont(Font *font) {
   g.CurrentWindow->DrawList->PushTextureID(font->ContainerAtlas->TexID);
 }
 
-void Gui::PopFont() {
+inline void Gui::PopFont() {
   Context &g = *GGui;
   g.CurrentWindow->DrawList->PopTextureID();
   g.FontStack.pop_back();
   SetCurrentFont(g.FontStack.empty() ? GetDefaultFont() : g.FontStack.back());
 }
 
-void Gui::PushItemFlag(ItemFlags option, bool enabled) {
+inline void Gui::PushItemFlag(ItemFlags option, bool enabled) {
   Context &g = *GGui;
   ItemFlags item_flags = g.CurrentItemFlags;
   GUI_ASSERT(item_flags == g.ItemFlagsStack.back());
@@ -21138,7 +22779,7 @@ void Gui::PushItemFlag(ItemFlags option, bool enabled) {
   g.ItemFlagsStack.push_back(item_flags);
 }
 
-void Gui::PopItemFlag() {
+inline void Gui::PopItemFlag() {
   Context &g = *GGui;
   GUI_ASSERT(g.ItemFlagsStack.Size >
              1); // Too many calls to PopItemFlag() - we always leave a 0 at the
@@ -21158,7 +22799,7 @@ void Gui::PopItemFlag() {
 // facilitate use of boolean expressions. If you can avoid calling
 // BeginDisabled(False)/EndDisabled() best to avoid it.
 // - Optimized shortcuts instead of PushStyleVar() + PushItemFlag()
-void Gui::BeginDisabled(bool disabled) {
+inline void Gui::BeginDisabled(bool disabled) {
   Context &g = *GGui;
   bool was_disabled = (g.CurrentItemFlags & ItemFlags_Disabled) != 0;
   if (!was_disabled && disabled) {
@@ -21173,7 +22814,7 @@ void Gui::BeginDisabled(bool disabled) {
   g.DisabledStackSize++;
 }
 
-void Gui::EndDisabled() {
+inline void Gui::EndDisabled() {
   Context &g = *GGui;
   GUI_ASSERT(g.DisabledStackSize > 0);
   g.DisabledStackSize--;
@@ -21185,25 +22826,25 @@ void Gui::EndDisabled() {
     g.Style.Alpha = g.DisabledAlphaBackup; // PopStyleVar();
 }
 
-void Gui::PushTabStop(bool tab_stop) {
+inline void Gui::PushTabStop(bool tab_stop) {
   PushItemFlag(ItemFlags_NoTabStop, !tab_stop);
 }
 
-void Gui::PopTabStop() { PopItemFlag(); }
+inline void Gui::PopTabStop() { PopItemFlag(); }
 
-void Gui::PushButtonRepeat(bool repeat) {
+inline void Gui::PushButtonRepeat(bool repeat) {
   PushItemFlag(ItemFlags_ButtonRepeat, repeat);
 }
 
-void Gui::PopButtonRepeat() { PopItemFlag(); }
+inline void Gui::PopButtonRepeat() { PopItemFlag(); }
 
-void Gui::PushTextWrapPos(float wrap_pos_x) {
+inline void Gui::PushTextWrapPos(float wrap_pos_x) {
   Window *window = GetCurrentWindow();
   window->DC.TextWrapPosStack.push_back(window->DC.TextWrapPos);
   window->DC.TextWrapPos = wrap_pos_x;
 }
 
-void Gui::PopTextWrapPos() {
+inline void Gui::PopTextWrapPos() {
   Window *window = GetCurrentWindow();
   window->DC.TextWrapPos = window->DC.TextWrapPosStack.back();
   window->DC.TextWrapPosStack.pop_back();
@@ -21220,8 +22861,8 @@ static Window *GetCombinedRootWindow(Window *window, bool popup_hierarchy) {
   return window;
 }
 
-bool Gui::IsWindowChildOf(Window *window, Window *potential_parent,
-                          bool popup_hierarchy) {
+inline bool Gui::IsWindowChildOf(Window *window, Window *potential_parent,
+                                 bool popup_hierarchy) {
   Window *window_root = GetCombinedRootWindow(window, popup_hierarchy);
   if (window_root == potential_parent)
     return true;
@@ -21235,18 +22876,8 @@ bool Gui::IsWindowChildOf(Window *window, Window *potential_parent,
   return false;
 }
 
-bool Gui::IsWindowWithinBeginStackOf(Window *window, Window *potential_parent) {
-  if (window->RootWindow == potential_parent)
-    return true;
-  while (window != NULL) {
-    if (window == potential_parent)
-      return true;
-    window = window->ParentWindowInBeginStack;
-  }
-  return false;
-}
-
-bool Gui::IsWindowAbove(Window *potential_above, Window *potential_below) {
+inline bool Gui::IsWindowAbove(Window *potential_above,
+                               Window *potential_below) {
   Context &g = *GGui;
 
   // It would be saner to ensure that display layer is always reflected in the
@@ -21273,7 +22904,7 @@ bool Gui::IsWindowAbove(Window *potential_above, Window *potential_below) {
 // app, you should not use this function! Use the 'io.WantCaptureMouse' boolean
 // for that! Refer to FAQ entry "How can I tell whether to dispatch
 // mouse/keyboard to Dear Gui or my application?" for details.
-bool Gui::IsWindowHovered(HoveredFlags flags) {
+inline bool Gui::IsWindowHovered(HoveredFlags flags) {
   GUI_ASSERT((flags & ~HoveredFlags_AllowedMaskForIsWindowHovered) == 0 &&
              "Invalid flags for IsWindowHovered()!");
 
@@ -21322,7 +22953,7 @@ bool Gui::IsWindowHovered(HoveredFlags flags) {
   return true;
 }
 
-bool Gui::IsWindowFocused(FocusedFlags flags) {
+inline bool Gui::IsWindowFocused(FocusedFlags flags) {
   Context &g = *GGui;
   Window *ref_window = g.NavWindow;
   Window *cur_window = g.CurrentWindow;
@@ -21348,28 +22979,24 @@ bool Gui::IsWindowFocused(FocusedFlags flags) {
 // reachable with CTRL+TAB but it can still be focused with mouse or
 // programmatically. If you want a window to never be focused, you may use the
 // e.g. NoInputs flag.
-bool Gui::IsWindowNavFocusable(Window *window) {
-  return window->WasActive && window == window->RootWindow &&
-         !(window->Flags & WindowFlags_NoNavFocus);
-}
 
-float Gui::GetWindowWidth() {
+inline float Gui::GetWindowWidth() {
   Window *window = GGui->CurrentWindow;
   return window->Size.x;
 }
 
-float Gui::GetWindowHeight() {
+inline float Gui::GetWindowHeight() {
   Window *window = GGui->CurrentWindow;
   return window->Size.y;
 }
 
-Vec2 Gui::GetWindowPos() {
+inline Vec2 Gui::GetWindowPos() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   return window->Pos;
 }
 
-void Gui::SetWindowPos(Window *window, const Vec2 &pos, Cond cond) {
+inline void Gui::SetWindowPos(Window *window, const Vec2 &pos, Cond cond) {
   // Test condition (NB: bit 0 is always true) and clear flags for next time
   if (cond && (window->SetWindowPosAllowFlags & cond) == 0)
     return;
@@ -21402,22 +23029,22 @@ void Gui::SetWindowPos(Window *window, const Vec2 &pos, Cond cond) {
   window->DC.CursorStartPos = Add(window->DC.CursorStartPos, offset);
 }
 
-void Gui::SetWindowPos(const Vec2 &pos, Cond cond) {
+inline void Gui::SetWindowPos(const Vec2 &pos, Cond cond) {
   Window *window = GetCurrentWindowRead();
   SetWindowPos(window, pos, cond);
 }
 
-void Gui::SetWindowPos(const char *name, const Vec2 &pos, Cond cond) {
+inline void Gui::SetWindowPos(const char *name, const Vec2 &pos, Cond cond) {
   if (Window *window = FindWindowByName(name))
     SetWindowPos(window, pos, cond);
 }
 
-Vec2 Gui::GetWindowSize() {
+inline Vec2 Gui::GetWindowSize() {
   Window *window = GetCurrentWindowRead();
   return window->Size;
 }
 
-void Gui::SetWindowSize(Window *window, const Vec2 &size, Cond cond) {
+inline void Gui::SetWindowSize(Window *window, const Vec2 &size, Cond cond) {
   // Test condition (NB: bit 0 is always true) and clear flags for next time
   if (cond && (window->SetWindowSizeAllowFlags & cond) == 0)
     return;
@@ -21451,61 +23078,46 @@ void Gui::SetWindowSize(Window *window, const Vec2 &size, Cond cond) {
     MarkIniSettingsDirty(window);
 }
 
-void Gui::SetWindowSize(const Vec2 &size, Cond cond) {
+inline void Gui::SetWindowSize(const Vec2 &size, Cond cond) {
   SetWindowSize(GGui->CurrentWindow, size, cond);
 }
 
-void Gui::SetWindowSize(const char *name, const Vec2 &size, Cond cond) {
+inline void Gui::SetWindowSize(const char *name, const Vec2 &size, Cond cond) {
   if (Window *window = FindWindowByName(name))
     SetWindowSize(window, size, cond);
 }
 
-void Gui::SetWindowCollapsed(Window *window, bool collapsed, Cond cond) {
-  // Test condition (NB: bit 0 is always true) and clear flags for next time
-  if (cond && (window->SetWindowCollapsedAllowFlags & cond) == 0)
-    return;
-  window->SetWindowCollapsedAllowFlags &=
-      ~(Cond_Once | Cond_FirstUseEver | Cond_Appearing);
-
-  // Set
-  window->Collapsed = collapsed;
-}
-
-void Gui::SetWindowHitTestHole(Window *window, const Vec2 &pos,
-                               const Vec2 &size) {
+inline void Gui::SetWindowHitTestHole(Window *window, const Vec2 &pos,
+                                      const Vec2 &size) {
   GUI_ASSERT(window->HitTestHoleSize.x ==
              0); // We don't support multiple holes/hit test filters
   window->HitTestHoleSize = Vec2ih(size);
   window->HitTestHoleOffset = Vec2ih(Subtract(pos, window->Pos));
 }
 
-void Gui::SetWindowHiddenAndSkipItemsForCurrentFrame(Window *window) {
-  window->Hidden = window->SkipItems = true;
-  window->HiddenFramesCanSkipItems = 1;
-}
-
-void Gui::SetWindowCollapsed(bool collapsed, Cond cond) {
+inline void Gui::SetWindowCollapsed(bool collapsed, Cond cond) {
   SetWindowCollapsed(GGui->CurrentWindow, collapsed, cond);
 }
 
-bool Gui::IsWindowCollapsed() {
+inline bool Gui::IsWindowCollapsed() {
   Window *window = GetCurrentWindowRead();
   return window->Collapsed;
 }
 
-bool Gui::IsWindowAppearing() {
+inline bool Gui::IsWindowAppearing() {
   Window *window = GetCurrentWindowRead();
   return window->Appearing;
 }
 
-void Gui::SetWindowCollapsed(const char *name, bool collapsed, Cond cond) {
+inline void Gui::SetWindowCollapsed(const char *name, bool collapsed,
+                                    Cond cond) {
   if (Window *window = FindWindowByName(name))
     SetWindowCollapsed(window, collapsed, cond);
 }
 
-void Gui::SetWindowFocus() { FocusWindow(GGui->CurrentWindow); }
+inline void Gui::SetWindowFocus() { FocusWindow(GGui->CurrentWindow); }
 
-void Gui::SetWindowFocus(const char *name) {
+inline void Gui::SetWindowFocus(const char *name) {
   if (name) {
     if (Window *window = FindWindowByName(name))
       FocusWindow(window);
@@ -21514,7 +23126,8 @@ void Gui::SetWindowFocus(const char *name) {
   }
 }
 
-void Gui::SetNextWindowPos(const Vec2 &pos, Cond cond, const Vec2 &pivot) {
+inline void Gui::SetNextWindowPos(const Vec2 &pos, Cond cond,
+                                  const Vec2 &pivot) {
   Context &g = *GGui;
   GUI_ASSERT(cond == 0 ||
              IsPowerOfTwo(cond)); // Make sure the user doesn't attempt to
@@ -21525,7 +23138,7 @@ void Gui::SetNextWindowPos(const Vec2 &pos, Cond cond, const Vec2 &pivot) {
   g.NextWindowData.PosCond = cond ? cond : Cond_Always;
 }
 
-void Gui::SetNextWindowSize(const Vec2 &size, Cond cond) {
+inline void Gui::SetNextWindowSize(const Vec2 &size, Cond cond) {
   Context &g = *GGui;
   GUI_ASSERT(cond == 0 ||
              IsPowerOfTwo(cond)); // Make sure the user doesn't attempt to
@@ -21541,10 +23154,10 @@ void Gui::SetNextWindowSize(const Vec2 &size, Cond cond) {
 // - Use -1 for both min and max of same axis to preserve current size which
 // itself is a constraint.
 // - See "Demo->Examples->Constrained-resizing window" for examples.
-void Gui::SetNextWindowSizeConstraints(const Vec2 &size_min,
-                                       const Vec2 &size_max,
-                                       SizeCallback custom_callback,
-                                       void *custom_callback_user_data) {
+inline void Gui::SetNextWindowSizeConstraints(const Vec2 &size_min,
+                                              const Vec2 &size_max,
+                                              SizeCallback custom_callback,
+                                              void *custom_callback_user_data) {
   Context &g = *GGui;
   g.NextWindowData.Flags |= NextWindowDataFlags_HasSizeConstraint;
   g.NextWindowData.SizeConstraintRect = Rect(size_min, size_max);
@@ -21555,19 +23168,19 @@ void Gui::SetNextWindowSizeConstraints(const Vec2 &size_min,
 // Content size = inner scrollable rectangle, padded with WindowPadding.
 // SetNextWindowContentSize(Vec2(100,100) + WindowFlags_AlwaysAutoResize
 // will always allow submitting a 100x100 item.
-void Gui::SetNextWindowContentSize(const Vec2 &size) {
+inline void Gui::SetNextWindowContentSize(const Vec2 &size) {
   Context &g = *GGui;
   g.NextWindowData.Flags |= NextWindowDataFlags_HasContentSize;
   g.NextWindowData.ContentSizeVal = Trunc(size);
 }
 
-void Gui::SetNextWindowScroll(const Vec2 &scroll) {
+inline void Gui::SetNextWindowScroll(const Vec2 &scroll) {
   Context &g = *GGui;
   g.NextWindowData.Flags |= NextWindowDataFlags_HasScroll;
   g.NextWindowData.ScrollVal = scroll;
 }
 
-void Gui::SetNextWindowCollapsed(bool collapsed, Cond cond) {
+inline void Gui::SetNextWindowCollapsed(bool collapsed, Cond cond) {
   Context &g = *GGui;
   GUI_ASSERT(cond == 0 ||
              IsPowerOfTwo(cond)); // Make sure the user doesn't attempt to
@@ -21577,31 +23190,31 @@ void Gui::SetNextWindowCollapsed(bool collapsed, Cond cond) {
   g.NextWindowData.CollapsedCond = cond ? cond : Cond_Always;
 }
 
-void Gui::SetNextWindowFocus() {
+inline void Gui::SetNextWindowFocus() {
   Context &g = *GGui;
   g.NextWindowData.Flags |= NextWindowDataFlags_HasFocus;
 }
 
-void Gui::SetNextWindowBgAlpha(float alpha) {
+inline void Gui::SetNextWindowBgAlpha(float alpha) {
   Context &g = *GGui;
   g.NextWindowData.Flags |= NextWindowDataFlags_HasBgAlpha;
   g.NextWindowData.BgAlphaVal = alpha;
 }
 
-DrawList *Gui::GetWindowDrawList() {
+inline DrawList *Gui::GetWindowDrawList() {
   Window *window = GetCurrentWindow();
   return window->DrawList;
 }
 
-Font *Gui::GetFont() { return GGui->Font; }
+inline Font *Gui::GetFont() { return GGui->Font; }
 
-float Gui::GetFontSize() { return GGui->FontSize; }
+inline float Gui::GetFontSize() { return GGui->FontSize; }
 
-Vec2 Gui::GetFontTexUvWhitePixel() {
+inline Vec2 Gui::GetFontTexUvWhitePixel() {
   return GGui->DrawListSharedData.TexUvWhitePixel;
 }
 
-void Gui::SetWindowFontScale(float scale) {
+inline void Gui::SetWindowFontScale(float scale) {
   GUI_ASSERT(scale > 0.0f);
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
@@ -21609,13 +23222,7 @@ void Gui::SetWindowFontScale(float scale) {
   g.FontSize = g.DrawListSharedData.FontSize = window->CalcFontSize();
 }
 
-void Gui::PushFocusScope(ID id) {
-  Context &g = *GGui;
-  g.FocusScopeStack.push_back(id);
-  g.CurrentFocusScopeId = id;
-}
-
-void Gui::PopFocusScope() {
+inline void Gui::PopFocusScope() {
   Context &g = *GGui;
   GUI_ASSERT(g.FocusScopeStack.Size > 0); // Too many PopFocusScope() ?
   g.FocusScopeStack.pop_back();
@@ -21623,7 +23230,7 @@ void Gui::PopFocusScope() {
 }
 
 // Focus = move navigation cursor, set scrolling, set focus window.
-void Gui::FocusItem() {
+inline void Gui::FocusItem() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_DEBUG_LOG_FOCUS("FocusItem(0x%08x) in window \"%s\"\n", g.LastItemData.ID,
@@ -21647,16 +23254,10 @@ void Gui::FocusItem() {
   NavMoveRequestResolveWithLastItem(&g.NavMoveResultLocal);
 }
 
-void Gui::ActivateItemByID(ID id) {
-  Context &g = *GGui;
-  g.NavNextActivateId = id;
-  g.NavNextActivateFlags = ActivateFlags_None;
-}
-
 // Note: this will likely be called ActivateItem() once we rework our
 // Focus/Activation system! But ActivateItem() should function without altering
 // scroll/focus?
-void Gui::SetKeyboardFocusHere(int offset) {
+inline void Gui::SetKeyboardFocusHere(int offset) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(offset >= -1); // -1 is allowed but not below
@@ -21695,7 +23296,7 @@ void Gui::SetKeyboardFocusHere(int offset) {
   }
 }
 
-void Gui::SetItemDefaultFocus() {
+inline void Gui::SetItemDefaultFocus() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (!window->Appearing)
@@ -21715,38 +23316,38 @@ void Gui::SetItemDefaultFocus() {
     ScrollToRectEx(window, g.LastItemData.Rect, ScrollFlags_None);
 }
 
-void Gui::SetStateStorage(Storage *tree) {
+inline void Gui::SetStateStorage(Storage *tree) {
   Window *window = GGui->CurrentWindow;
   window->DC.StateStorage = tree ? tree : &window->StateStorage;
 }
 
-Storage *Gui::GetStateStorage() {
+inline Storage *Gui::GetStateStorage() {
   Window *window = GGui->CurrentWindow;
   return window->DC.StateStorage;
 }
 
-void Gui::PushID(const char *str_id) {
+inline void Gui::PushID(const char *str_id) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ID id = window->GetID(str_id);
   window->IDStack.push_back(id);
 }
 
-void Gui::PushID(const char *str_id_begin, const char *str_id_end) {
+inline void Gui::PushID(const char *str_id_begin, const char *str_id_end) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ID id = window->GetID(str_id_begin, str_id_end);
   window->IDStack.push_back(id);
 }
 
-void Gui::PushID(const void *ptr_id) {
+inline void Gui::PushID(const void *ptr_id) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ID id = window->GetID(ptr_id);
   window->IDStack.push_back(id);
 }
 
-void Gui::PushID(int int_id) {
+inline void Gui::PushID(int int_id) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ID id = window->GetID(int_id);
@@ -21754,7 +23355,7 @@ void Gui::PushID(int int_id) {
 }
 
 // Push a given id value ignoring the ID stack as a seed.
-void Gui::PushOverrideID(ID id) {
+inline void Gui::PushOverrideID(ID id) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (g.DebugHookIdInfo == id)
@@ -21767,7 +23368,7 @@ void Gui::PushOverrideID(ID id) {
 // the intermediate stack level.
 //  for that to work we would need to do PushOverrideID() -> ItemAdd() ->
 //  PopID() which would alter widget code a little more)
-ID Gui::GetIDWithSeed(const char *str, const char *str_end, ID seed) {
+inline ID Gui::GetIDWithSeed(const char *str, const char *str_end, ID seed) {
   ID id = HashStr(str, str_end ? (str_end - str) : 0, seed);
   Context &g = *GGui;
   if (g.DebugHookIdInfo == id)
@@ -21775,7 +23376,7 @@ ID Gui::GetIDWithSeed(const char *str, const char *str_end, ID seed) {
   return id;
 }
 
-ID Gui::GetIDWithSeed(int n, ID seed) {
+inline ID Gui::GetIDWithSeed(int n, ID seed) {
   ID id = HashData(&n, sizeof(n), seed);
   Context &g = *GGui;
   if (g.DebugHookIdInfo == id)
@@ -21783,7 +23384,7 @@ ID Gui::GetIDWithSeed(int n, ID seed) {
   return id;
 }
 
-void Gui::PopID() {
+inline void Gui::PopID() {
   Window *window = GGui->CurrentWindow;
   GUI_ASSERT(
       window->IDStack.Size >
@@ -21791,28 +23392,28 @@ void Gui::PopID() {
   window->IDStack.pop_back();
 }
 
-ID Gui::GetID(const char *str_id) {
+inline ID Gui::GetID(const char *str_id) {
   Window *window = GGui->CurrentWindow;
   return window->GetID(str_id);
 }
 
-ID Gui::GetID(const char *str_id_begin, const char *str_id_end) {
+inline ID Gui::GetID(const char *str_id_begin, const char *str_id_end) {
   Window *window = GGui->CurrentWindow;
   return window->GetID(str_id_begin, str_id_end);
 }
 
-ID Gui::GetID(const void *ptr_id) {
+inline ID Gui::GetID(const void *ptr_id) {
   Window *window = GGui->CurrentWindow;
   return window->GetID(ptr_id);
 }
 
-bool Gui::IsRectVisible(const Vec2 &size) {
+inline bool Gui::IsRectVisible(const Vec2 &size) {
   Window *window = GGui->CurrentWindow;
   return window->ClipRect.Overlaps(
       Rect(window->DC.CursorPos, Add(window->DC.CursorPos, size)));
 }
 
-bool Gui::IsRectVisible(const Vec2 &rect_min, const Vec2 &rect_max) {
+inline bool Gui::IsRectVisible(const Vec2 &rect_min, const Vec2 &rect_max) {
   Window *window = GGui->CurrentWindow;
   return window->ClipRect.Overlaps(Rect(rect_min, rect_max));
 }
@@ -21881,7 +23482,7 @@ bool Gui::IsRectVisible(const Vec2 &rect_min, const Vec2 &rect_max) {
 // - Shortcut() [Internal]
 //-----------------------------------------------------------------------------
 
-KeyData *Gui::GetKeyData(Context *ctx, Key key) {
+inline KeyData *Gui::GetKeyData(Context *ctx, Key key) {
   Context &g = *ctx;
 
   // Special storage location for mods
@@ -21901,7 +23502,7 @@ KeyData *Gui::GetKeyData(Context *ctx, Key key) {
 }
 
 #ifndef GUI_DISABLE_OBSOLETE_KEYIO
-Key Gui::GetKeyIndex(Key key) {
+inline Key Gui::GetKeyIndex(Key key) {
   Context &g = *GGui;
   GUI_ASSERT(IsNamedKey(key));
   const KeyData *key_data = GetKeyData(key);
@@ -22069,7 +23670,7 @@ static const char *const GKeyNames[] = {
 };
 GUI_STATIC_ASSERT(Key_NamedKey_COUNT == GUI_ARRAYSIZE(GKeyNames));
 
-const char *Gui::GetKeyName(Key key) {
+inline const char *Gui::GetKeyName(Key key) {
   Context &g = *GGui;
 #ifdef GUI_DISABLE_OBSOLETE_KEYIO
   GUI_ASSERT((IsNamedKeyOrModKey(key) || key == Key_None) &&
@@ -22094,7 +23695,8 @@ const char *Gui::GetKeyName(Key key) {
 }
 
 // Mod_Shortcut is translated to either Ctrl or Super.
-void Gui::GetKeyChordName(KeyChord key_chord, char *out_buf, int out_buf_size) {
+inline void Gui::GetKeyChordName(KeyChord key_chord, char *out_buf,
+                                 int out_buf_size) {
   Context &g = *GGui;
   if (key_chord & Mod_Shortcut)
     key_chord = ConvertShortcutMod(key_chord);
@@ -22112,47 +23714,13 @@ void Gui::GetKeyChordName(KeyChord key_chord, char *out_buf, int out_buf_size) {
 // t1 = current time (e.g.: g.Time)
 // An event is triggered at:
 //  t = 0.0f     t = repeat_delay,    t = repeat_delay + repeat_rate*N
-int Gui::CalcTypematicRepeatAmount(float t0, float t1, float repeat_delay,
-                                   float repeat_rate) {
-  if (t1 == 0.0f)
-    return 1;
-  if (t0 >= t1)
-    return 0;
-  if (repeat_rate <= 0.0f)
-    return (t0 < repeat_delay) && (t1 >= repeat_delay);
-  const int count_t0 =
-      (t0 < repeat_delay) ? -1 : (int)((t0 - repeat_delay) / repeat_rate);
-  const int count_t1 =
-      (t1 < repeat_delay) ? -1 : (int)((t1 - repeat_delay) / repeat_rate);
-  const int count = count_t1 - count_t0;
-  return count;
-}
-
-void Gui::GetTypematicRepeatRate(InputFlags flags, float *repeat_delay,
-                                 float *repeat_rate) {
-  Context &g = *GGui;
-  switch (flags & InputFlags_RepeatRateMask_) {
-  case InputFlags_RepeatRateNavMove:
-    *repeat_delay = g.IO.KeyRepeatDelay * 0.72f;
-    *repeat_rate = g.IO.KeyRepeatRate * 0.80f;
-    return;
-  case InputFlags_RepeatRateNavTweak:
-    *repeat_delay = g.IO.KeyRepeatDelay * 0.72f;
-    *repeat_rate = g.IO.KeyRepeatRate * 0.30f;
-    return;
-  case InputFlags_RepeatRateDefault:
-  default:
-    *repeat_delay = g.IO.KeyRepeatDelay * 1.00f;
-    *repeat_rate = g.IO.KeyRepeatRate * 1.00f;
-    return;
-  }
-}
 
 // Return value representing the number of presses in the last time period, for
 // the given repeat rate (most often returns 0 or 1. The result is generally
 // only >1 when RepeatRate is smaller than DeltaTime, aka large DeltaTime or
 // fast RepeatRate)
-int Gui::GetKeyPressedAmount(Key key, float repeat_delay, float repeat_rate) {
+inline int Gui::GetKeyPressedAmount(Key key, float repeat_delay,
+                                    float repeat_rate) {
   Context &g = *GGui;
   const KeyData *key_data = GetKeyData(key);
   if (!key_data
@@ -22167,12 +23735,6 @@ int Gui::GetKeyPressedAmount(Key key, float repeat_delay, float repeat_rate) {
 
 // Return 2D vector representing the combination of four cardinal direction,
 // with analog value support (for e.g. Key_GamepadLStick* values).
-Vec2 Gui::GetKeyMagnitude2d(Key key_left, Key key_right, Key key_up,
-                            Key key_down) {
-  return Vec2(
-      GetKeyData(key_right)->AnalogValue - GetKeyData(key_left)->AnalogValue,
-      GetKeyData(key_down)->AnalogValue - GetKeyData(key_up)->AnalogValue);
-}
 
 // Rewrite routing data buffers to strip old entries + sort by key to make
 // queries not touch scattered data.
@@ -22229,7 +23791,7 @@ static inline ID GetRoutingIdFromOwnerId(ID owner_id) {
              : g.CurrentFocusScopeId;
 }
 
-KeyRoutingData *Gui::GetShortcutRoutingData(KeyChord key_chord) {
+inline KeyRoutingData *Gui::GetShortcutRoutingData(KeyChord key_chord) {
   // Majority of shortcuts will be Key + any number of Mods
   // We accept _Single_ mod with Key_None.
   //  - Shortcut(Key_S | Mod_Ctrl);                    // Legal
@@ -22332,8 +23894,8 @@ static int CalcRoutingScore(Window *location, ID owner_id, InputFlags flags) {
 // current focus scope (each window has its focus scope by default)
 // - Using 'owner_id == KeyOwner_None': allows disabling/locking a
 // shortcut.
-bool Gui::SetShortcutRouting(KeyChord key_chord, ID owner_id,
-                             InputFlags flags) {
+inline bool Gui::SetShortcutRouting(KeyChord key_chord, ID owner_id,
+                                    InputFlags flags) {
   Context &g = *GGui;
   if ((flags & InputFlags_RouteMask_) == 0)
     flags |= InputFlags_RouteGlobalHigh; // IMPORTANT: This is the default
@@ -22373,7 +23935,7 @@ bool Gui::SetShortcutRouting(KeyChord key_chord, ID owner_id,
 // Currently unused by core (but used by tests)
 // Note: this cannot be turned into GetShortcutRouting() because we do the
 // owner_id->routing_id translation, name would be more misleading.
-bool Gui::TestShortcutRouting(KeyChord key_chord, ID owner_id) {
+inline bool Gui::TestShortcutRouting(KeyChord key_chord, ID owner_id) {
   const ID routing_id = GetRoutingIdFromOwnerId(owner_id);
   KeyRoutingData *routing_data =
       GetShortcutRoutingData(key_chord); // FIXME: Could avoid creating entry.
@@ -22383,25 +23945,16 @@ bool Gui::TestShortcutRouting(KeyChord key_chord, ID owner_id) {
 // Note that Dear Gui doesn't know the meaning/semantic of Key from
 // 0..511: they are legacy native keycodes. Consider transitioning from
 // 'IsKeyDown(MY_ENGINE_KEY_A)' (<1.87) to IsKeyDown(Key_A) (>= 1.87)
-bool Gui::IsKeyDown(Key key) { return IsKeyDown(key, KeyOwner_Any); }
+inline bool Gui::IsKeyDown(Key key) { return IsKeyDown(key, KeyOwner_Any); }
 
-bool Gui::IsKeyDown(Key key, ID owner_id) {
-  const KeyData *key_data = GetKeyData(key);
-  if (!key_data->Down)
-    return false;
-  if (!TestKeyOwner(key, owner_id))
-    return false;
-  return true;
-}
-
-bool Gui::IsKeyPressed(Key key, bool repeat) {
+inline bool Gui::IsKeyPressed(Key key, bool repeat) {
   return IsKeyPressed(key, KeyOwner_Any,
                       repeat ? InputFlags_Repeat : InputFlags_None);
 }
 
 // Important: unless legacy IsKeyPressed(Key, bool repeat=true) which
 // DEFAULT to repeat, this requires EXPLICIT repeat.
-bool Gui::IsKeyPressed(Key key, ID owner_id, InputFlags flags) {
+inline bool Gui::IsKeyPressed(Key key, ID owner_id, InputFlags flags) {
   const KeyData *key_data = GetKeyData(key);
   if (!key_data
            ->Down) // In theory this should already be encoded as (DownDuration
@@ -22428,18 +23981,11 @@ bool Gui::IsKeyPressed(Key key, ID owner_id, InputFlags flags) {
   return true;
 }
 
-bool Gui::IsKeyReleased(Key key) { return IsKeyReleased(key, KeyOwner_Any); }
-
-bool Gui::IsKeyReleased(Key key, ID owner_id) {
-  const KeyData *key_data = GetKeyData(key);
-  if (key_data->DownDurationPrev < 0.0f || key_data->Down)
-    return false;
-  if (!TestKeyOwner(key, owner_id))
-    return false;
-  return true;
+inline bool Gui::IsKeyReleased(Key key) {
+  return IsKeyReleased(key, KeyOwner_Any);
 }
 
-bool Gui::IsMouseDown(MouseButton button) {
+inline bool Gui::IsMouseDown(MouseButton button) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseDown[button] &&
@@ -22450,7 +23996,7 @@ bool Gui::IsMouseDown(MouseButton button) {
                                      // code hijacking the io.Mousedown[] array.
 }
 
-bool Gui::IsMouseDown(MouseButton button, ID owner_id) {
+inline bool Gui::IsMouseDown(MouseButton button, ID owner_id) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseDown[button] &&
@@ -22461,12 +24007,13 @@ bool Gui::IsMouseDown(MouseButton button, ID owner_id) {
                         // io.Mousedown[] array.
 }
 
-bool Gui::IsMouseClicked(MouseButton button, bool repeat) {
+inline bool Gui::IsMouseClicked(MouseButton button, bool repeat) {
   return IsMouseClicked(button, KeyOwner_Any,
                         repeat ? InputFlags_Repeat : InputFlags_None);
 }
 
-bool Gui::IsMouseClicked(MouseButton button, ID owner_id, InputFlags flags) {
+inline bool Gui::IsMouseClicked(MouseButton button, ID owner_id,
+                                InputFlags flags) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   if (!g.IO.MouseDown[button]) // In theory this should already be encoded as
@@ -22495,7 +24042,7 @@ bool Gui::IsMouseClicked(MouseButton button, ID owner_id, InputFlags flags) {
   return true;
 }
 
-bool Gui::IsMouseReleased(MouseButton button) {
+inline bool Gui::IsMouseReleased(MouseButton button) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseReleased[button] &&
@@ -22505,7 +24052,7 @@ bool Gui::IsMouseReleased(MouseButton button) {
                                      // KeyOwner_Any)
 }
 
-bool Gui::IsMouseReleased(MouseButton button, ID owner_id) {
+inline bool Gui::IsMouseReleased(MouseButton button, ID owner_id) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseReleased[button] &&
@@ -22515,21 +24062,21 @@ bool Gui::IsMouseReleased(MouseButton button, ID owner_id) {
                         // IsKeyReleased(MouseButtonToKey(button), owner_id)
 }
 
-bool Gui::IsMouseDoubleClicked(MouseButton button) {
+inline bool Gui::IsMouseDoubleClicked(MouseButton button) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseClickedCount[button] == 2 &&
          TestKeyOwner(MouseButtonToKey(button), KeyOwner_Any);
 }
 
-bool Gui::IsMouseDoubleClicked(MouseButton button, ID owner_id) {
+inline bool Gui::IsMouseDoubleClicked(MouseButton button, ID owner_id) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseClickedCount[button] == 2 &&
          TestKeyOwner(MouseButtonToKey(button), owner_id);
 }
 
-int Gui::GetMouseClickedCount(MouseButton button) {
+inline int Gui::GetMouseClickedCount(MouseButton button) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   return g.IO.MouseClickedCount[button];
@@ -22539,7 +24086,8 @@ int Gui::GetMouseClickedCount(MouseButton button) {
 // NB- Rectangle is clipped by our current clip setting
 // NB- Expand the rectangle to be generous on imprecise inputs systems
 // (g.Style.TouchExtraPadding)
-bool Gui::IsMouseHoveringRect(const Vec2 &r_min, const Vec2 &r_max, bool clip) {
+inline bool Gui::IsMouseHoveringRect(const Vec2 &r_min, const Vec2 &r_max,
+                                     bool clip) {
   Context &g = *GGui;
 
   // Clip
@@ -22556,7 +24104,8 @@ bool Gui::IsMouseHoveringRect(const Vec2 &r_min, const Vec2 &r_max, bool clip) {
 // Return if a mouse click/drag went past the given threshold. Valid to call
 // during the MouseReleased frame. [Internal] This doesn't test if the button is
 // pressed
-bool Gui::IsMouseDragPastThreshold(MouseButton button, float lock_threshold) {
+inline bool Gui::IsMouseDragPastThreshold(MouseButton button,
+                                          float lock_threshold) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   if (lock_threshold < 0.0f)
@@ -22565,7 +24114,7 @@ bool Gui::IsMouseDragPastThreshold(MouseButton button, float lock_threshold) {
          lock_threshold * lock_threshold;
 }
 
-bool Gui::IsMouseDragging(MouseButton button, float lock_threshold) {
+inline bool Gui::IsMouseDragging(MouseButton button, float lock_threshold) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   if (!g.IO.MouseDown[button])
@@ -22573,7 +24122,7 @@ bool Gui::IsMouseDragging(MouseButton button, float lock_threshold) {
   return IsMouseDragPastThreshold(button, lock_threshold);
 }
 
-Vec2 Gui::GetMousePos() {
+inline Vec2 Gui::GetMousePos() {
   Context &g = *GGui;
   return g.IO.MousePos;
 }
@@ -22582,18 +24131,10 @@ Vec2 Gui::GetMousePos() {
 // setting MousePosPrev will effectively clear mouse delta as well. It is
 // expected you only call this if (io.BackendFlags &
 // BackendFlags_HasSetMousePos) is set and supported by backend.
-void Gui::TeleportMousePos(const Vec2 &pos) {
-  Context &g = *GGui;
-  g.IO.MousePos = g.IO.MousePosPrev = pos;
-  g.IO.MouseDelta = Vec2(0.0f, 0.0f);
-  g.IO.WantSetMousePos = true;
-  // GUI_DEBUG_LOG_IO("TeleportMousePos: (%.1f,%.1f)\n", io.MousePos.x,
-  // io.MousePos.y);
-}
 
 // NB: prefer to call right after BeginPopup(). At the time Selectable/MenuItem
 // is activated, the popup is already closed!
-Vec2 Gui::GetMousePosOnOpeningCurrentPopup() {
+inline Vec2 Gui::GetMousePosOnOpeningCurrentPopup() {
   Context &g = *GGui;
   if (g.BeginPopupStack.Size > 0)
     return g.OpenPopupStack[g.BeginPopupStack.Size - 1].OpenMousePos;
@@ -22602,7 +24143,7 @@ Vec2 Gui::GetMousePosOnOpeningCurrentPopup() {
 
 // We typically use Vec2(-FLT_MAX,-FLT_MAX) to denote an invalid mouse
 // position.
-bool Gui::IsMousePosValid(const Vec2 *mouse_pos) {
+inline bool Gui::IsMousePosValid(const Vec2 *mouse_pos) {
   // The assert is only to silence a false-positive in XCode Static Analysis.
   // Because GGui is not dereferenced in every code path, the static analyzer
   // assume that it may be NULL (which it doesn't for other functions).
@@ -22615,7 +24156,7 @@ bool Gui::IsMousePosValid(const Vec2 *mouse_pos) {
 // [WILL OBSOLETE] This was designed for backends, but prefer having backend
 // maintain a mask of held mouse buttons, because upcoming input queue system
 // will make this invalid.
-bool Gui::IsAnyMouseDown() {
+inline bool Gui::IsAnyMouseDown() {
   Context &g = *GGui;
   for (int n = 0; n < GUI_ARRAYSIZE(g.IO.MouseDown); n++)
     if (g.IO.MouseDown[n])
@@ -22628,7 +24169,7 @@ bool Gui::IsAnyMouseDown() {
 // moves past a distance threshold at least once. NB: This is only valid if
 // IsMousePosValid(). backends in theory should always keep mouse position valid
 // when dragging even outside the client window.
-Vec2 Gui::GetMouseDragDelta(MouseButton button, float lock_threshold) {
+inline Vec2 Gui::GetMouseDragDelta(MouseButton button, float lock_threshold) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   if (lock_threshold < 0.0f)
@@ -22641,7 +24182,7 @@ Vec2 Gui::GetMouseDragDelta(MouseButton button, float lock_threshold) {
   return Vec2(0.0f, 0.0f);
 }
 
-void Gui::ResetMouseDragDelta(MouseButton button) {
+inline void Gui::ResetMouseDragDelta(MouseButton button) {
   Context &g = *GGui;
   GUI_ASSERT(button >= 0 && button < GUI_ARRAYSIZE(g.IO.MouseDown));
   // NB: We don't need to reset g.IO.MouseDragMaxDistanceSqr
@@ -22653,12 +24194,12 @@ void Gui::ResetMouseDragDelta(MouseButton button) {
 // Gui::NewFrame(), updated during the frame, and locked in EndFrame()/Render().
 // If you use software rendering by setting io.MouseDrawCursor then Dear Gui
 // will render those for you
-MouseCursor Gui::GetMouseCursor() {
+inline MouseCursor Gui::GetMouseCursor() {
   Context &g = *GGui;
   return g.MouseCursor;
 }
 
-void Gui::SetMouseCursor(MouseCursor cursor_type) {
+inline void Gui::SetMouseCursor(MouseCursor cursor_type) {
   Context &g = *GGui;
   g.MouseCursor = cursor_type;
 }
@@ -23096,12 +24637,12 @@ void Gui::UpdateMouseWheel() {
     }
 }
 
-void Gui::SetNextFrameWantCaptureKeyboard(bool want_capture_keyboard) {
+inline void Gui::SetNextFrameWantCaptureKeyboard(bool want_capture_keyboard) {
   Context &g = *GGui;
   g.WantCaptureKeyboardNextFrame = want_capture_keyboard ? 1 : 0;
 }
 
-void Gui::SetNextFrameWantCaptureMouse(bool want_capture_mouse) {
+inline void Gui::SetNextFrameWantCaptureMouse(bool want_capture_mouse) {
   Context &g = *GGui;
   g.WantCaptureMouseNextFrame = want_capture_mouse ? 1 : 0;
 }
@@ -23168,7 +24709,7 @@ static void DebugPrintInputEvent(const char *prefix, const InputEvent *e) {
 // - trickle_fast_inputs = true  : process as many events as possible
 // (successive down/up/down/up will be trickled over several frames so nothing
 // is lost) (new feature in 1.87)
-void Gui::UpdateInputEvents(bool trickle_fast_inputs) {
+inline void Gui::UpdateInputEvents(bool trickle_fast_inputs) {
   Context &g = *GGui;
   IO &io = g.IO;
 
@@ -23302,7 +24843,7 @@ void Gui::UpdateInputEvents(bool trickle_fast_inputs) {
     g.IO.ClearInputKeys();
 }
 
-ID Gui::GetKeyOwner(Key key) {
+inline ID Gui::GetKeyOwner(Key key) {
   if (!IsNamedKeyOrModKey(key))
     return KeyOwner_None;
 
@@ -23323,7 +24864,7 @@ ID Gui::GetKeyOwner(Key key) {
 // TestKeyOwner(..., Any)  : no owner test
 // All paths are also testing for key not being locked, for the rare cases that
 // key have been locked with using InputFlags_LockXXX flags.
-bool Gui::TestKeyOwner(Key key, ID owner_id) {
+inline bool Gui::TestKeyOwner(Key key, ID owner_id) {
   if (!IsNamedKeyOrModKey(key))
     return true;
 
@@ -23359,7 +24900,7 @@ bool Gui::TestKeyOwner(Key key, ID owner_id) {
 // - SetKeyOwner(..., None)              : clears owner
 // - SetKeyOwner(..., Any, !Lock)        : illegal (assert)
 // - SetKeyOwner(..., Any or None, Lock) : set lock
-void Gui::SetKeyOwner(Key key, ID owner_id, InputFlags flags) {
+inline void Gui::SetKeyOwner(Key key, ID owner_id, InputFlags flags) {
   GUI_ASSERT(
       IsNamedKeyOrModKey(key) &&
       (owner_id != KeyOwner_Any ||
@@ -23384,27 +24925,6 @@ void Gui::SetKeyOwner(Key key, ID owner_id, InputFlags flags) {
 }
 
 // Rarely used helper
-void Gui::SetKeyOwnersForKeyChord(KeyChord key_chord, ID owner_id,
-                                  InputFlags flags) {
-  if (key_chord & Mod_Ctrl) {
-    SetKeyOwner(Mod_Ctrl, owner_id, flags);
-  }
-  if (key_chord & Mod_Shift) {
-    SetKeyOwner(Mod_Shift, owner_id, flags);
-  }
-  if (key_chord & Mod_Alt) {
-    SetKeyOwner(Mod_Alt, owner_id, flags);
-  }
-  if (key_chord & Mod_Super) {
-    SetKeyOwner(Mod_Super, owner_id, flags);
-  }
-  if (key_chord & Mod_Shortcut) {
-    SetKeyOwner(Mod_Shortcut, owner_id, flags);
-  }
-  if (key_chord & ~Mod_Mask_) {
-    SetKeyOwner((Key)(key_chord & ~Mod_Mask_), owner_id, flags);
-  }
-}
 
 // This is more or less equivalent to:
 //   if (IsItemHovered() || IsItemActive())
@@ -23415,7 +24935,7 @@ void Gui::SetKeyOwnersForKeyChord(KeyChord key_chord, ID owner_id,
 // on different condition. Worth noting is that only one item can be hovered and
 // only one item can be active, therefore this usage pattern doesn't need to
 // bother with routing and priority.
-void Gui::SetItemKeyOwner(Key key, InputFlags flags) {
+inline void Gui::SetItemKeyOwner(Key key, InputFlags flags) {
   Context &g = *GGui;
   ID id = g.LastItemData.ID;
   if (id == 0 || (g.HoveredId != id && g.ActiveId != id))
@@ -23432,31 +24952,13 @@ void Gui::SetItemKeyOwner(Key key, InputFlags flags) {
 
 // This is the only public API until we expose owner_id versions of the API as
 // replacements.
-bool Gui::IsKeyChordPressed(KeyChord key_chord) {
+inline bool Gui::IsKeyChordPressed(KeyChord key_chord) {
   return IsKeyChordPressed(key_chord, 0, InputFlags_None);
 }
 
 // This is equivalent to comparing KeyMods + doing a IsKeyPressed()
-bool Gui::IsKeyChordPressed(KeyChord key_chord, ID owner_id, InputFlags flags) {
-  Context &g = *GGui;
-  if (key_chord & Mod_Shortcut)
-    key_chord = ConvertShortcutMod(key_chord);
-  Key mods = (Key)(key_chord & Mod_Mask_);
-  if (g.IO.KeyMods != mods)
-    return false;
 
-  // Special storage location for mods
-  Key key = (Key)(key_chord & ~Mod_Mask_);
-  if (key == Key_None)
-    key = ConvertSingleModFlagToKey(&g, mods);
-  if (!IsKeyPressed(key, owner_id,
-                    (flags & (InputFlags_Repeat |
-                              (InputFlags)InputFlags_RepeatRateMask_))))
-    return false;
-  return true;
-}
-
-bool Gui::Shortcut(KeyChord key_chord, ID owner_id, InputFlags flags) {
+inline bool Gui::Shortcut(KeyChord key_chord, ID owner_id, InputFlags flags) {
   // When using (owner_id == 0/Any): SetShortcutRouting() will use
   // CurrentFocusScopeId and filter with this, so IsKeyPressed() is fine with he
   // 0/Any.
@@ -23488,10 +24990,10 @@ bool Gui::Shortcut(KeyChord key_chord, ID owner_id, InputFlags flags) {
 //   put them in your imconfig file (and not just before including gui.hpp).
 //   Otherwise it is possible that different compilation units would see
 //   different structure layout
-bool Gui::DebugCheckVersionAndDataLayout(const char *version, size_t sz_io,
-                                         size_t sz_style, size_t sz_vec2,
-                                         size_t sz_vec4, size_t sz_vert,
-                                         size_t sz_idx) {
+inline bool Gui::DebugCheckVersionAndDataLayout(const char *version,
+                                                size_t sz_io, size_t sz_style,
+                                                size_t sz_vec2, size_t sz_vec4,
+                                                size_t sz_vert, size_t sz_idx) {
   bool error = false;
   if (strcmp(version, GUI_VERSION) != 0) {
     error = true;
@@ -23546,7 +25048,7 @@ bool Gui::DebugCheckVersionAndDataLayout(const char *version, size_t sz_io,
 //  into content size, making the group taller! While this code is a little
 //  twisted, no-one would expect SetXXX(GetXXX()) to have a side-effect. Using
 //  vertical alignment patterns could trigger this issue.
-void Gui::ErrorCheckUsingSetCursorPosToExtendParentBoundaries() {
+inline void Gui::ErrorCheckUsingSetCursorPosToExtendParentBoundaries() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(window->DC.IsSetPos);
@@ -23698,8 +25200,8 @@ static void Gui::ErrorCheckEndFrameSanityChecks() {
 // as we are not necessarily End/Popping things in the right order.
 // FIXME: Can't recover from inside BeginTabItem/EndTabItem yet.
 // FIXME: Can't recover from interleaved BeginTabBar/Begin
-void Gui::ErrorCheckEndFrameRecover(ErrorLogCallback log_callback,
-                                    void *user_data) {
+inline void Gui::ErrorCheckEndFrameRecover(ErrorLogCallback log_callback,
+                                           void *user_data) {
   // PVS-Studio V1044 is "Loop break conditions do not depend on the number of
   // iterations"
   Context &g = *GGui;
@@ -23726,8 +25228,8 @@ void Gui::ErrorCheckEndFrameRecover(ErrorLogCallback log_callback,
 }
 
 // Must be called before End()/EndChild()
-void Gui::ErrorCheckEndWindowRecover(ErrorLogCallback log_callback,
-                                     void *user_data) {
+inline void Gui::ErrorCheckEndWindowRecover(ErrorLogCallback log_callback,
+                                            void *user_data) {
   Context &g = *GGui;
   while (g.CurrentTable && (g.CurrentTable->OuterWindow == g.CurrentWindow ||
                             g.CurrentTable->InnerWindow == g.CurrentWindow)) {
@@ -23812,7 +25314,7 @@ void Gui::ErrorCheckEndWindowRecover(ErrorLogCallback log_callback,
 }
 
 // Save current stack sizes for later compare
-void StackSizes::SetToContextState(Context *ctx) {
+inline void StackSizes::SetToContextState(Context *ctx) {
   Context &g = *ctx;
   Window *window = g.CurrentWindow;
   SizeOfIDStack = (short)window->IDStack.Size;
@@ -23827,7 +25329,7 @@ void StackSizes::SetToContextState(Context *ctx) {
 }
 
 // Compare to detect usage errors
-void StackSizes::CompareWithContextState(Context *ctx) {
+inline void StackSizes::CompareWithContextState(Context *ctx) {
   Context &g = *ctx;
   Window *window = g.CurrentWindow;
   GUI_UNUSED(window);
@@ -23897,59 +25399,6 @@ void StackSizes::CompareWithContextState(Context *ctx) {
 // auto-fit calculation. See comments in ItemAdd() about how/why the size
 // provided to ItemSize() vs ItemAdd() may often different. THIS IS IN THE
 // PERFORMANCE CRITICAL PATH.
-void Gui::ItemSize(const Vec2 &size, float text_baseline_y) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  if (window->SkipItems)
-    return;
-
-  // We increase the height in this function to accommodate for baseline offset.
-  // In theory we should be offsetting the starting position
-  // (window->DC.CursorPos), that will be the topic of a larger refactor, but
-  // since ItemSize() is not yet an API that moves the cursor (to handle e.g.
-  // wrapping) enlarging the height has the same effect.
-  const float offset_to_match_baseline_y =
-      (text_baseline_y >= 0)
-          ? Max(0.0f, window->DC.CurrLineTextBaseOffset - text_baseline_y)
-          : 0.0f;
-
-  const float line_y1 = window->DC.IsSameLine ? window->DC.CursorPosPrevLine.y
-                                              : window->DC.CursorPos.y;
-  const float line_height =
-      Max(window->DC.CurrLineSize.y, /*Max(*/ window->DC.CursorPos.y -
-                                         line_y1 /*, 0.0f)*/ + size.y +
-                                         offset_to_match_baseline_y);
-
-  // Always align ourselves on pixel boundaries
-  // if (g.IO.KeyAlt) window->DrawList->AddRect(window->DC.CursorPos,
-  // window->DC.CursorPos + Vec2(size.x, line_height),
-  // GUI_COL32(255,0,0,200));
-  // // [DEBUG]
-  window->DC.CursorPosPrevLine.x = window->DC.CursorPos.x + size.x;
-  window->DC.CursorPosPrevLine.y = line_y1;
-  window->DC.CursorPos.x = GUI_TRUNC(window->Pos.x + window->DC.Indent.x +
-                                     window->DC.ColumnsOffset.x); // Next line
-  window->DC.CursorPos.y =
-      GUI_TRUNC(line_y1 + line_height + g.Style.ItemSpacing.y); // Next line
-  window->DC.CursorMaxPos.x =
-      Max(window->DC.CursorMaxPos.x, window->DC.CursorPosPrevLine.x);
-  window->DC.CursorMaxPos.y =
-      Max(window->DC.CursorMaxPos.y,
-          window->DC.CursorPos.y - g.Style.ItemSpacing.y);
-  // if (g.IO.KeyAlt) window->DrawList->AddCircle(window->DC.CursorMaxPos, 3.0f,
-  // GUI_COL32(255,0,0,255), 4); // [DEBUG]
-
-  window->DC.PrevLineSize.y = line_height;
-  window->DC.CurrLineSize.y = 0.0f;
-  window->DC.PrevLineTextBaseOffset =
-      Max(window->DC.CurrLineTextBaseOffset, text_baseline_y);
-  window->DC.CurrLineTextBaseOffset = 0.0f;
-  window->DC.IsSameLine = window->DC.IsSetPos = false;
-
-  // Horizontal layout mode
-  if (window->DC.LayoutType == LayoutType_Horizontal)
-    SameLine();
-}
 
 // Declare item bounding box for clipping and interaction.
 // Note that the size can be different than the one provided to ItemSize().
@@ -23957,8 +25406,8 @@ void Gui::ItemSize(const Vec2 &size, float text_baseline_y) {
 // size requirement to ItemSize() and provide a larger region to ItemAdd() which
 // is used drawing/interaction. THIS IS IN THE PERFORMANCE CRITICAL PATH (UNTIL
 // THE CLIPPING TEST AND EARLY-RETURN)
-bool Gui::ItemAdd(const Rect &bb, ID id, const Rect *nav_bb_arg,
-                  ItemFlags extra_flags) {
+inline bool Gui::ItemAdd(const Rect &bb, ID id, const Rect *nav_bb_arg,
+                         ItemFlags extra_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -24063,7 +25512,7 @@ bool Gui::ItemAdd(const Rect &bb, ID id, const Rect *nav_bb_arg,
 //      window/group left) spacing_w < 0            : use default spacing if
 //      offset_from_start_x == 0, no spacing if offset_from_start_x != 0
 //      spacing_w >= 0           : enforce spacing amount
-void Gui::SameLine(float offset_from_start_x, float spacing_w) {
+inline void Gui::SameLine(float offset_from_start_x, float spacing_w) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -24087,12 +25536,12 @@ void Gui::SameLine(float offset_from_start_x, float spacing_w) {
   window->DC.IsSameLine = true;
 }
 
-Vec2 Gui::GetCursorScreenPos() {
+inline Vec2 Gui::GetCursorScreenPos() {
   Window *window = GetCurrentWindowRead();
   return window->DC.CursorPos;
 }
 
-void Gui::SetCursorScreenPos(const Vec2 &pos) {
+inline void Gui::SetCursorScreenPos(const Vec2 &pos) {
   Window *window = GetCurrentWindow();
   window->DC.CursorPos = pos;
   // window->DC.CursorMaxPos = Max(window->DC.CursorMaxPos,
@@ -24105,22 +25554,22 @@ void Gui::SetCursorScreenPos(const Vec2 &pos) {
 // Conversion happens as we pass the value to user, but it makes our naming
 // convention confusing because GetCursorPos() == (DC.CursorPos - window.Pos).
 // May want to rename 'DC.CursorPos'.
-Vec2 Gui::GetCursorPos() {
+inline Vec2 Gui::GetCursorPos() {
   Window *window = GetCurrentWindowRead();
   return Add(Subtract(window->DC.CursorPos, window->Pos), window->Scroll);
 }
 
-float Gui::GetCursorPosX() {
+inline float Gui::GetCursorPosX() {
   Window *window = GetCurrentWindowRead();
   return window->DC.CursorPos.x - window->Pos.x + window->Scroll.x;
 }
 
-float Gui::GetCursorPosY() {
+inline float Gui::GetCursorPosY() {
   Window *window = GetCurrentWindowRead();
   return window->DC.CursorPos.y - window->Pos.y + window->Scroll.y;
 }
 
-void Gui::SetCursorPos(const Vec2 &local_pos) {
+inline void Gui::SetCursorPos(const Vec2 &local_pos) {
   Window *window = GetCurrentWindow();
   window->DC.CursorPos = Add(Subtract(window->Pos, window->Scroll), local_pos);
   // window->DC.CursorMaxPos = Max(window->DC.CursorMaxPos,
@@ -24128,7 +25577,7 @@ void Gui::SetCursorPos(const Vec2 &local_pos) {
   window->DC.IsSetPos = true;
 }
 
-void Gui::SetCursorPosX(float x) {
+inline void Gui::SetCursorPosX(float x) {
   Window *window = GetCurrentWindow();
   window->DC.CursorPos.x = window->Pos.x - window->Scroll.x + x;
   // window->DC.CursorMaxPos.x = Max(window->DC.CursorMaxPos.x,
@@ -24136,7 +25585,7 @@ void Gui::SetCursorPosX(float x) {
   window->DC.IsSetPos = true;
 }
 
-void Gui::SetCursorPosY(float y) {
+inline void Gui::SetCursorPosY(float y) {
   Window *window = GetCurrentWindow();
   window->DC.CursorPos.y = window->Pos.y - window->Scroll.y + y;
   // window->DC.CursorMaxPos.y = Max(window->DC.CursorMaxPos.y,
@@ -24144,12 +25593,12 @@ void Gui::SetCursorPosY(float y) {
   window->DC.IsSetPos = true;
 }
 
-Vec2 Gui::GetCursorStartPos() {
+inline Vec2 Gui::GetCursorStartPos() {
   Window *window = GetCurrentWindowRead();
   return Subtract(window->DC.CursorStartPos, window->Pos);
 }
 
-void Gui::Indent(float indent_w) {
+inline void Gui::Indent(float indent_w) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   window->DC.Indent.x += (indent_w != 0.0f) ? indent_w : g.Style.IndentSpacing;
@@ -24157,7 +25606,7 @@ void Gui::Indent(float indent_w) {
       window->Pos.x + window->DC.Indent.x + window->DC.ColumnsOffset.x;
 }
 
-void Gui::Unindent(float indent_w) {
+inline void Gui::Unindent(float indent_w) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   window->DC.Indent.x -= (indent_w != 0.0f) ? indent_w : g.Style.IndentSpacing;
@@ -24166,14 +25615,14 @@ void Gui::Unindent(float indent_w) {
 }
 
 // Affect large frame+labels widgets only.
-void Gui::SetNextItemWidth(float item_width) {
+inline void Gui::SetNextItemWidth(float item_width) {
   Context &g = *GGui;
   g.NextItemData.Flags |= NextItemDataFlags_HasWidth;
   g.NextItemData.Width = item_width;
 }
 
 // FIXME: Remove the == 0.0f behavior?
-void Gui::PushItemWidth(float item_width) {
+inline void Gui::PushItemWidth(float item_width) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   window->DC.ItemWidthStack.push_back(
@@ -24183,7 +25632,7 @@ void Gui::PushItemWidth(float item_width) {
   g.NextItemData.Flags &= ~NextItemDataFlags_HasWidth;
 }
 
-void Gui::PushMultiItemsWidths(int components, float w_full) {
+inline void Gui::PushMultiItemsWidths(int components, float w_full) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(components > 0);
@@ -24201,7 +25650,7 @@ void Gui::PushMultiItemsWidths(int components, float w_full) {
   g.NextItemData.Flags &= ~NextItemDataFlags_HasWidth;
 }
 
-void Gui::PopItemWidth() {
+inline void Gui::PopItemWidth() {
   Window *window = GetCurrentWindow();
   window->DC.ItemWidth = window->DC.ItemWidthStack.back();
   window->DC.ItemWidthStack.pop_back();
@@ -24210,7 +25659,7 @@ void Gui::PopItemWidth() {
 // Calculate default item width given value passed to PushItemWidth() or
 // SetNextItemWidth(). The SetNextItemWidth() data is generally cleared/consumed
 // by ItemAdd() or NextItemData.ClearFlags()
-float Gui::CalcItemWidth() {
+inline float Gui::CalcItemWidth() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   float w;
@@ -24232,7 +25681,7 @@ float Gui::CalcItemWidth() {
 // not fully symmetrical. Note that only CalcItemWidth() is publicly exposed.
 // The 4.0f here may be changed to match CalcItemWidth() and/or BeginChild()
 // (right now we have a mismatch which is harmless but undesirable)
-Vec2 Gui::CalcItemSize(Vec2 size, float default_w, float default_h) {
+inline Vec2 Gui::CalcItemSize(Vec2 size, float default_w, float default_h) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -24253,22 +25702,22 @@ Vec2 Gui::CalcItemSize(Vec2 size, float default_w, float default_h) {
   return size;
 }
 
-float Gui::GetTextLineHeight() {
+inline float Gui::GetTextLineHeight() {
   Context &g = *GGui;
   return g.FontSize;
 }
 
-float Gui::GetTextLineHeightWithSpacing() {
+inline float Gui::GetTextLineHeightWithSpacing() {
   Context &g = *GGui;
   return g.FontSize + g.Style.ItemSpacing.y;
 }
 
-float Gui::GetFrameHeight() {
+inline float Gui::GetFrameHeight() {
   Context &g = *GGui;
   return g.FontSize + g.Style.FramePadding.y * 2.0f;
 }
 
-float Gui::GetFrameHeightWithSpacing() {
+inline float Gui::GetFrameHeightWithSpacing() {
   Context &g = *GGui;
   return g.FontSize + g.Style.FramePadding.y * 2.0f + g.Style.ItemSpacing.y;
 }
@@ -24277,7 +25726,7 @@ float Gui::GetFrameHeightWithSpacing() {
 // TO OBSOLETE ALL OF THEM WITH A NEW "WORK RECT" API. Thanks for your patience!
 
 // FIXME: This is in window space (not screen space!).
-Vec2 Gui::GetContentRegionMax() {
+inline Vec2 Gui::GetContentRegionMax() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   Vec2 mx = (window->DC.CurrentColumns || g.CurrentTable)
@@ -24288,27 +25737,19 @@ Vec2 Gui::GetContentRegionMax() {
 
 // [Internal] Absolute coordinate. Saner. This is not exposed until we finishing
 // refactoring work rect features.
-Vec2 Gui::GetContentRegionMaxAbs() {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Vec2 mx = (window->DC.CurrentColumns || g.CurrentTable)
-                ? window->WorkRect.Max
-                : window->ContentRegionRect.Max;
-  return mx;
-}
 
-Vec2 Gui::GetContentRegionAvail() {
+inline Vec2 Gui::GetContentRegionAvail() {
   Window *window = GGui->CurrentWindow;
   return Subtract(GetContentRegionMaxAbs(), window->DC.CursorPos);
 }
 
 // In window space (not screen space!)
-Vec2 Gui::GetWindowContentRegionMin() {
+inline Vec2 Gui::GetWindowContentRegionMin() {
   Window *window = GGui->CurrentWindow;
   return Subtract(window->ContentRegionRect.Min, window->Pos);
 }
 
-Vec2 Gui::GetWindowContentRegionMax() {
+inline Vec2 Gui::GetWindowContentRegionMax() {
   Window *window = GGui->CurrentWindow;
   return Subtract(window->ContentRegionRect.Max, window->Pos);
 }
@@ -24318,7 +25759,7 @@ Vec2 Gui::GetWindowContentRegionMax() {
 // SameLine() on whole group, etc.) Groups are currently a mishmash of
 // functionalities which should perhaps be clarified and separated.
 // FIXME-OPT: Could we safely early out on ->SkipItems?
-void Gui::BeginGroup() {
+inline void Gui::BeginGroup() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -24348,7 +25789,7 @@ void Gui::BeginGroup() {
     g.LogLinePosY = -FLT_MAX; // To enforce a carriage return
 }
 
-void Gui::EndGroup() {
+inline void Gui::EndGroup() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(g.GroupStack.Size > 0); // Mismatched BeginGroup()/EndGroup() calls
@@ -24476,20 +25917,20 @@ static Vec2 CalcNextScrollFromScrollTargetAndClamp(Window *window) {
   return scroll;
 }
 
-void Gui::ScrollToItem(ScrollFlags flags) {
+inline void Gui::ScrollToItem(ScrollFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ScrollToRectEx(window, g.LastItemData.NavRect, flags);
 }
 
-void Gui::ScrollToRect(Window *window, const Rect &item_rect,
-                       ScrollFlags flags) {
+inline void Gui::ScrollToRect(Window *window, const Rect &item_rect,
+                              ScrollFlags flags) {
   ScrollToRectEx(window, item_rect, flags);
 }
 
 // Scroll to keep newly navigated item fully into view
-Vec2 Gui::ScrollToRectEx(Window *window, const Rect &item_rect,
-                         ScrollFlags flags) {
+inline Vec2 Gui::ScrollToRectEx(Window *window, const Rect &item_rect,
+                                ScrollFlags flags) {
   Context &g = *GGui;
   Rect scroll_rect(Subtract(window->InnerRect.Min, Vec2(1, 1)),
                    Add(window->InnerRect.Max, Vec2(1, 1)));
@@ -24597,44 +26038,32 @@ Vec2 Gui::ScrollToRectEx(Window *window, const Rect &item_rect,
   return delta_scroll;
 }
 
-float Gui::GetScrollX() {
+inline float Gui::GetScrollX() {
   Window *window = GGui->CurrentWindow;
   return window->Scroll.x;
 }
 
-float Gui::GetScrollY() {
+inline float Gui::GetScrollY() {
   Window *window = GGui->CurrentWindow;
   return window->Scroll.y;
 }
 
-float Gui::GetScrollMaxX() {
+inline float Gui::GetScrollMaxX() {
   Window *window = GGui->CurrentWindow;
   return window->ScrollMax.x;
 }
 
-float Gui::GetScrollMaxY() {
+inline float Gui::GetScrollMaxY() {
   Window *window = GGui->CurrentWindow;
   return window->ScrollMax.y;
 }
 
-void Gui::SetScrollX(Window *window, float scroll_x) {
-  window->ScrollTarget.x = scroll_x;
-  window->ScrollTargetCenterRatio.x = 0.0f;
-  window->ScrollTargetEdgeSnapDist.x = 0.0f;
-}
-
-void Gui::SetScrollY(Window *window, float scroll_y) {
-  window->ScrollTarget.y = scroll_y;
-  window->ScrollTargetCenterRatio.y = 0.0f;
-  window->ScrollTargetEdgeSnapDist.y = 0.0f;
-}
-
-void Gui::SetScrollX(float scroll_x) {
+inline void Gui::SetScrollX(float scroll_x) {
   Context &g = *GGui;
   SetScrollX(g.CurrentWindow, scroll_x);
 }
 
-void Gui::SetScrollY(float scroll_y) {
+inline void Gui::SetScrollY(float scroll_y) {
   Context &g = *GGui;
   SetScrollY(g.CurrentWindow, scroll_y);
 }
@@ -24655,8 +26084,8 @@ void Gui::SetScrollY(float scroll_y) {
 //  directly then makes more sense
 // We store a target position so centering and clamping can occur on the next
 // frame when we are guaranteed to have a known window size
-void Gui::SetScrollFromPosX(Window *window, float local_x,
-                            float center_x_ratio) {
+inline void Gui::SetScrollFromPosX(Window *window, float local_x,
+                                   float center_x_ratio) {
   GUI_ASSERT(center_x_ratio >= 0.0f && center_x_ratio <= 1.0f);
   window->ScrollTarget.x =
       GUI_TRUNC(local_x - window->DecoOuterSizeX1 - window->DecoInnerSizeX1 +
@@ -24665,8 +26094,8 @@ void Gui::SetScrollFromPosX(Window *window, float local_x,
   window->ScrollTargetEdgeSnapDist.x = 0.0f;
 }
 
-void Gui::SetScrollFromPosY(Window *window, float local_y,
-                            float center_y_ratio) {
+inline void Gui::SetScrollFromPosY(Window *window, float local_y,
+                                   float center_y_ratio) {
   GUI_ASSERT(center_y_ratio >= 0.0f && center_y_ratio <= 1.0f);
   window->ScrollTarget.y =
       GUI_TRUNC(local_y - window->DecoOuterSizeY1 - window->DecoInnerSizeY1 +
@@ -24675,19 +26104,19 @@ void Gui::SetScrollFromPosY(Window *window, float local_y,
   window->ScrollTargetEdgeSnapDist.y = 0.0f;
 }
 
-void Gui::SetScrollFromPosX(float local_x, float center_x_ratio) {
+inline void Gui::SetScrollFromPosX(float local_x, float center_x_ratio) {
   Context &g = *GGui;
   SetScrollFromPosX(g.CurrentWindow, local_x, center_x_ratio);
 }
 
-void Gui::SetScrollFromPosY(float local_y, float center_y_ratio) {
+inline void Gui::SetScrollFromPosY(float local_y, float center_y_ratio) {
   Context &g = *GGui;
   SetScrollFromPosY(g.CurrentWindow, local_y, center_y_ratio);
 }
 
 // center_x_ratio: 0.0f left of last item, 0.5f horizontal center of last
 // item, 1.0f right of last item.
-void Gui::SetScrollHereX(float center_x_ratio) {
+inline void Gui::SetScrollHereX(float center_x_ratio) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   float spacing_x = Max(window->WindowPadding.x, g.Style.ItemSpacing.x);
@@ -24704,7 +26133,7 @@ void Gui::SetScrollHereX(float center_x_ratio) {
 
 // center_y_ratio: 0.0f top of last item, 0.5f vertical center of last
 // item, 1.0f bottom of last item.
-void Gui::SetScrollHereY(float center_y_ratio) {
+inline void Gui::SetScrollHereY(float center_y_ratio) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   float spacing_y = Max(window->WindowPadding.y, g.Style.ItemSpacing.y);
@@ -24724,18 +26153,18 @@ void Gui::SetScrollHereY(float center_y_ratio) {
 // [SECTION] TOOLTIPS
 //-----------------------------------------------------------------------------
 
-bool Gui::BeginTooltip() {
+inline bool Gui::BeginTooltip() {
   return BeginTooltipEx(TooltipFlags_None, WindowFlags_None);
 }
 
-bool Gui::BeginItemTooltip() {
+inline bool Gui::BeginItemTooltip() {
   if (!IsItemHovered(HoveredFlags_ForTooltip))
     return false;
   return BeginTooltipEx(TooltipFlags_None, WindowFlags_None);
 }
 
-bool Gui::BeginTooltipEx(TooltipFlags tooltip_flags,
-                         WindowFlags extra_window_flags) {
+inline bool Gui::BeginTooltipEx(TooltipFlags tooltip_flags,
+                                WindowFlags extra_window_flags) {
   Context &g = *GGui;
 
   if (g.DragDropWithinSource || g.DragDropWithinTarget) {
@@ -24783,21 +26212,21 @@ bool Gui::BeginTooltipEx(TooltipFlags tooltip_flags,
   return true;
 }
 
-void Gui::EndTooltip() {
+inline void Gui::EndTooltip() {
   GUI_ASSERT(
       GetCurrentWindowRead()->Flags &
       WindowFlags_Tooltip); // Mismatched BeginTooltip()/EndTooltip() calls
   End();
 }
 
-void Gui::SetTooltip(const char *fmt, ...) {
+inline void Gui::SetTooltip(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   SetTooltipV(fmt, args);
   va_end(args);
 }
 
-void Gui::SetTooltipV(const char *fmt, va_list args) {
+inline void Gui::SetTooltipV(const char *fmt, va_list args) {
   if (!BeginTooltipEx(TooltipFlags_OverridePrevious, WindowFlags_None))
     return;
   TextV(fmt, args);
@@ -24807,7 +26236,7 @@ void Gui::SetTooltipV(const char *fmt, va_list args) {
 // Shortcut to use 'style.HoverFlagsForTooltipMouse' or
 // 'style.HoverFlagsForTooltipNav'. Defaults to == HoveredFlags_Stationary
 // | HoveredFlags_DelayShort when using the mouse.
-void Gui::SetItemTooltip(const char *fmt, ...) {
+inline void Gui::SetItemTooltip(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   if (IsItemHovered(HoveredFlags_ForTooltip))
@@ -24815,7 +26244,7 @@ void Gui::SetItemTooltip(const char *fmt, ...) {
   va_end(args);
 }
 
-void Gui::SetItemTooltipV(const char *fmt, va_list args) {
+inline void Gui::SetItemTooltipV(const char *fmt, va_list args) {
   if (IsItemHovered(HoveredFlags_ForTooltip))
     SetTooltipV(fmt, args);
 }
@@ -24825,7 +26254,7 @@ void Gui::SetItemTooltipV(const char *fmt, va_list args) {
 //-----------------------------------------------------------------------------
 
 // Supported flags: PopupFlags_AnyPopupId, PopupFlags_AnyPopupLevel
-bool Gui::IsPopupOpen(ID id, PopupFlags popup_flags) {
+inline bool Gui::IsPopupOpen(ID id, PopupFlags popup_flags) {
   Context &g = *GGui;
   if (popup_flags & PopupFlags_AnyPopupId) {
     // Return true if any popup is open at the current BeginPopup() level of the
@@ -24852,7 +26281,7 @@ bool Gui::IsPopupOpen(ID id, PopupFlags popup_flags) {
   }
 }
 
-bool Gui::IsPopupOpen(const char *str_id, PopupFlags popup_flags) {
+inline bool Gui::IsPopupOpen(const char *str_id, PopupFlags popup_flags) {
   Context &g = *GGui;
   ID id = (popup_flags & PopupFlags_AnyPopupId)
               ? 0
@@ -24865,17 +26294,9 @@ bool Gui::IsPopupOpen(const char *str_id, PopupFlags popup_flags) {
 }
 
 // Also see FindBlockingModal(NULL)
-Window *Gui::GetTopMostPopupModal() {
-  Context &g = *GGui;
-  for (int n = g.OpenPopupStack.Size - 1; n >= 0; n--)
-    if (Window *popup = g.OpenPopupStack.Data[n].Window)
-      if (popup->Flags & WindowFlags_Modal)
-        return popup;
-  return NULL;
-}
 
 // See Demo->Stacked Modal to confirm what this is for.
-Window *Gui::GetTopMostAndVisiblePopupModal() {
+inline Window *Gui::GetTopMostAndVisiblePopupModal() {
   Context &g = *GGui;
   for (int n = g.OpenPopupStack.Size - 1; n >= 0; n--)
     if (Window *popup = g.OpenPopupStack.Data[n].Window)
@@ -24884,14 +26305,14 @@ Window *Gui::GetTopMostAndVisiblePopupModal() {
   return NULL;
 }
 
-void Gui::OpenPopup(const char *str_id, PopupFlags popup_flags) {
+inline void Gui::OpenPopup(const char *str_id, PopupFlags popup_flags) {
   Context &g = *GGui;
   ID id = g.CurrentWindow->GetID(str_id);
   GUI_DEBUG_LOG_POPUP("[popup] OpenPopup(\"%s\" -> 0x%08X)\n", str_id, id);
   OpenPopupEx(id, popup_flags);
 }
 
-void Gui::OpenPopup(ID id, PopupFlags popup_flags) {
+inline void Gui::OpenPopup(ID id, PopupFlags popup_flags) {
   OpenPopupEx(id, popup_flags);
 }
 
@@ -24902,7 +26323,7 @@ void Gui::OpenPopup(ID id, PopupFlags popup_flags) {
 // needs to be at the same level). One open popup per level of the popup
 // hierarchy (NB: when assigning we reset the Window member of PopupRef to
 // NULL)
-void Gui::OpenPopupEx(ID id, PopupFlags popup_flags) {
+inline void Gui::OpenPopupEx(ID id, PopupFlags popup_flags) {
   Context &g = *GGui;
   Window *parent_window = g.CurrentWindow;
   const int current_stack_size = g.BeginPopupStack.Size;
@@ -24957,8 +26378,9 @@ void Gui::OpenPopupEx(ID id, PopupFlags popup_flags) {
 // When popups are stacked, clicking on a lower level popups puts focus back to
 // it and close popups above it. This function closes any popups that are over
 // 'ref_window'.
-void Gui::ClosePopupsOverWindow(Window *ref_window,
-                                bool restore_focus_to_window_under_popup) {
+inline void
+Gui::ClosePopupsOverWindow(Window *ref_window,
+                           bool restore_focus_to_window_under_popup) {
   Context &g = *GGui;
   if (g.OpenPopupStack.Size == 0)
     return;
@@ -25005,24 +26427,8 @@ void Gui::ClosePopupsOverWindow(Window *ref_window,
   }
 }
 
-void Gui::ClosePopupsExceptModals() {
-  Context &g = *GGui;
-
-  int popup_count_to_keep;
-  for (popup_count_to_keep = g.OpenPopupStack.Size; popup_count_to_keep > 0;
-       popup_count_to_keep--) {
-    Window *window = g.OpenPopupStack[popup_count_to_keep - 1].Window;
-    if (!window || (window->Flags & WindowFlags_Modal))
-      break;
-  }
-  if (popup_count_to_keep <
-      g.OpenPopupStack.Size) // This test is not required but it allows to set a
-                             // convenient breakpoint on the statement below
-    ClosePopupToLevel(popup_count_to_keep, true);
-}
-
-void Gui::ClosePopupToLevel(int remaining,
-                            bool restore_focus_to_window_under_popup) {
+inline void Gui::ClosePopupToLevel(int remaining,
+                                   bool restore_focus_to_window_under_popup) {
   Context &g = *GGui;
   GUI_DEBUG_LOG_POPUP(
       "[popup] ClosePopupToLevel(%d), restore_focus_to_window_under_popup=%d\n",
@@ -25051,7 +26457,7 @@ void Gui::ClosePopupToLevel(int remaining,
 }
 
 // Close the popup we have begin-ed into.
-void Gui::CloseCurrentPopup() {
+inline void Gui::CloseCurrentPopup() {
   Context &g = *GGui;
   int popup_idx = g.BeginPopupStack.Size - 1;
   if (popup_idx < 0 || popup_idx >= g.OpenPopupStack.Size ||
@@ -25086,33 +26492,8 @@ void Gui::CloseCurrentPopup() {
 }
 
 // Attention! BeginPopup() adds default flags which BeginPopupEx()!
-bool Gui::BeginPopupEx(ID id, WindowFlags flags) {
-  Context &g = *GGui;
-  if (!IsPopupOpen(id, PopupFlags_None)) {
-    g.NextWindowData.ClearFlags(); // We behave like Begin() and need to consume
-                                   // those values
-    return false;
-  }
 
-  char name[20];
-  if (flags & WindowFlags_ChildMenu)
-    FormatString(name, GUI_ARRAYSIZE(name), "##Menu_%02d",
-                 g.BeginMenuCount); // Recycle windows based on depth
-  else
-    FormatString(
-        name, GUI_ARRAYSIZE(name), "##Popup_%08x",
-        id); // Not recycling, so we can close/open during the same frame
-
-  flags |= WindowFlags_Popup;
-  bool is_open = Begin(name, NULL, flags);
-  if (!is_open) // NB: Begin can return false when the popup is completely
-                // clipped (e.g. zero size display)
-    EndPopup();
-
-  return is_open;
-}
-
-bool Gui::BeginPopup(const char *str_id, WindowFlags flags) {
+inline bool Gui::BeginPopup(const char *str_id, WindowFlags flags) {
   Context &g = *GGui;
   if (g.OpenPopupStack.Size <=
       g.BeginPopupStack.Size) // Early out for performance
@@ -25133,7 +26514,8 @@ bool Gui::BeginPopup(const char *str_id, WindowFlags flags) {
 // - *p_open set back to false in BeginPopupModal() when popup is not open.
 // - if you set *p_open to false before calling BeginPopupModal(), it will close
 // the popup.
-bool Gui::BeginPopupModal(const char *name, bool *p_open, WindowFlags flags) {
+inline bool Gui::BeginPopupModal(const char *name, bool *p_open,
+                                 WindowFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   const ID id = window->GetID(name);
@@ -25170,7 +26552,7 @@ bool Gui::BeginPopupModal(const char *name, bool *p_open, WindowFlags flags) {
   return is_open;
 }
 
-void Gui::EndPopup() {
+inline void Gui::EndPopup() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(window->Flags &
@@ -25194,7 +26576,8 @@ void Gui::EndPopup() {
 // Helper to open a popup if mouse button is released over the item
 // - This is essentially the same as BeginPopupContextItem() but without the
 // trailing BeginPopup()
-void Gui::OpenPopupOnItemClick(const char *str_id, PopupFlags popup_flags) {
+inline void Gui::OpenPopupOnItemClick(const char *str_id,
+                                      PopupFlags popup_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   int mouse_button = (popup_flags & PopupFlags_MouseButtonMask_);
@@ -25232,7 +26615,8 @@ void Gui::OpenPopupOnItemClick(const char *str_id, PopupFlags popup_flags) {
 //       return BeginPopup(id);
 //   The main difference being that this is tweaked to avoid computing the ID
 //   twice.
-bool Gui::BeginPopupContextItem(const char *str_id, PopupFlags popup_flags) {
+inline bool Gui::BeginPopupContextItem(const char *str_id,
+                                       PopupFlags popup_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -25254,7 +26638,8 @@ bool Gui::BeginPopupContextItem(const char *str_id, PopupFlags popup_flags) {
                               WindowFlags_NoSavedSettings);
 }
 
-bool Gui::BeginPopupContextWindow(const char *str_id, PopupFlags popup_flags) {
+inline bool Gui::BeginPopupContextWindow(const char *str_id,
+                                         PopupFlags popup_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (!str_id)
@@ -25270,7 +26655,8 @@ bool Gui::BeginPopupContextWindow(const char *str_id, PopupFlags popup_flags) {
                               WindowFlags_NoSavedSettings);
 }
 
-bool Gui::BeginPopupContextVoid(const char *str_id, PopupFlags popup_flags) {
+inline bool Gui::BeginPopupContextVoid(const char *str_id,
+                                       PopupFlags popup_flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (!str_id)
@@ -25294,10 +26680,11 @@ bool Gui::BeginPopupContextVoid(const char *str_id, PopupFlags popup_flags) {
 //  information are available, it may represent the entire platform monitor from
 //  the frame of reference of the current viewport. this allows us to have
 //  tooltips/popups displayed out of the parent viewport.)
-Vec2 Gui::FindBestWindowPosForPopupEx(const Vec2 &ref_pos, const Vec2 &size,
-                                      Dir *last_dir, const Rect &r_outer,
-                                      const Rect &r_avoid,
-                                      PopupPositionPolicy policy) {
+inline Vec2 Gui::FindBestWindowPosForPopupEx(const Vec2 &ref_pos,
+                                             const Vec2 &size, Dir *last_dir,
+                                             const Rect &r_outer,
+                                             const Rect &r_avoid,
+                                             PopupPositionPolicy policy) {
   Vec2 base_pos_clamped =
       Clamp(ref_pos, r_outer.Min, Subtract(r_outer.Max, size));
   // GetForegroundDrawList()->AddRect(r_avoid.Min, r_avoid.Max,
@@ -25389,18 +26776,8 @@ Vec2 Gui::FindBestWindowPosForPopupEx(const Vec2 &ref_pos, const Vec2 &size,
 
 // Note that this is used for popups, which can overlap the non work-area of
 // individual viewports.
-Rect Gui::GetPopupAllowedExtentRect(Window *window) {
-  Context &g = *GGui;
-  GUI_UNUSED(window);
-  Rect r_screen = ((ViewportP *)(void *)GetMainViewport())->GetMainRect();
-  Vec2 padding = g.Style.DisplaySafeAreaPadding;
-  r_screen.Expand(
-      Vec2((r_screen.GetWidth() > padding.x * 2) ? -padding.x : 0.0f,
-           (r_screen.GetHeight() > padding.y * 2) ? -padding.y : 0.0f));
-  return r_screen;
-}
 
-Vec2 Gui::FindBestWindowPosForPopup(Window *window) {
+inline Vec2 Gui::FindBestWindowPosForPopup(Window *window) {
   Context &g = *GGui;
 
   Rect r_outer = GetPopupAllowedExtentRect(window);
@@ -25482,7 +26859,7 @@ Vec2 Gui::FindBestWindowPosForPopup(Window *window) {
 // yet right now this is super confusing. Those two functions are merely a
 // legacy artifact, so at minimum naming should be clarified.
 
-void Gui::SetNavWindow(Window *window) {
+inline void Gui::SetNavWindow(Window *window) {
   Context &g = *GGui;
   if (g.NavWindow != window) {
     GUI_DEBUG_LOG_FOCUS("[focus] SetNavWindow(\"%s\")\n",
@@ -25494,14 +26871,8 @@ void Gui::SetNavWindow(Window *window) {
   NavUpdateAnyRequestFlag();
 }
 
-void Gui::NavClearPreferredPosForAxis(Axis axis) {
-  Context &g = *GGui;
-  g.NavWindow->RootWindowForNav->NavPreferredScoringPosRel[g.NavLayer][axis] =
-      FLT_MAX;
-}
-
-void Gui::SetNavID(ID id, NavLayer nav_layer, ID focus_scope_id,
-                   const Rect &rect_rel) {
+inline void Gui::SetNavID(ID id, NavLayer nav_layer, ID focus_scope_id,
+                          const Rect &rect_rel) {
   Context &g = *GGui;
   GUI_ASSERT(g.NavWindow != NULL);
   GUI_ASSERT(nav_layer == NavLayer_Main || nav_layer == NavLayer_Menu);
@@ -25517,7 +26888,7 @@ void Gui::SetNavID(ID id, NavLayer nav_layer, ID focus_scope_id,
   NavClearPreferredPosForAxis(Axis_Y);
 }
 
-void Gui::SetFocusID(ID id, Window *window) {
+inline void Gui::SetFocusID(ID id, Window *window) {
   Context &g = *GGui;
   GUI_ASSERT(id != 0);
 
@@ -25751,12 +27122,6 @@ static void Gui::NavApplyItemToResult(NavItemData *result) {
 // True when current work location may be scrolled horizontally when moving left
 // / right. This is generally always true UNLESS within a column. We don't have
 // a vertical equivalent.
-void Gui::NavUpdateCurrentWindowIsScrollPushableX() {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  window->DC.NavIsScrollPushableX =
-      (g.CurrentTable == NULL && window->DC.CurrentColumns == NULL);
-}
 
 // We get there when either NavId == id, or when g.NavAnyRequest is set (which
 // is updated by NavUpdateAnyRequestFlag above) This is called after
@@ -25916,16 +27281,10 @@ void Gui::NavProcessItemForTabbingRequest(ID id, ItemFlags item_flags,
   }
 }
 
-bool Gui::NavMoveRequestButNoResultYet() {
-  Context &g = *GGui;
-  return g.NavMoveScoringItems && g.NavMoveResultLocal.ID == 0 &&
-         g.NavMoveResultOther.ID == 0;
-}
-
 // FIXME: ScoringRect is not set
-void Gui::NavMoveRequestSubmit(Dir move_dir, Dir clip_dir,
-                               NavMoveFlags move_flags,
-                               ScrollFlags scroll_flags) {
+inline void Gui::NavMoveRequestSubmit(Dir move_dir, Dir clip_dir,
+                                      NavMoveFlags move_flags,
+                                      ScrollFlags scroll_flags) {
   Context &g = *GGui;
   GUI_ASSERT(g.NavWindow != NULL);
 
@@ -25948,7 +27307,7 @@ void Gui::NavMoveRequestSubmit(Dir move_dir, Dir clip_dir,
   NavUpdateAnyRequestFlag();
 }
 
-void Gui::NavMoveRequestResolveWithLastItem(NavItemData *result) {
+inline void Gui::NavMoveRequestResolveWithLastItem(NavItemData *result) {
   Context &g = *GGui;
   g.NavMoveScoringItems = false; // Ensure request doesn't need more processing
   NavApplyItemToResult(result);
@@ -25956,8 +27315,9 @@ void Gui::NavMoveRequestResolveWithLastItem(NavItemData *result) {
 }
 
 // Called by TreePop() to implement TreeNodeFlags_NavLeftJumpsBackHere
-void Gui::NavMoveRequestResolveWithPastTreeNode(
-    NavItemData *result, NavTreeNodeData *tree_node_data) {
+inline void
+Gui::NavMoveRequestResolveWithPastTreeNode(NavItemData *result,
+                                           NavTreeNodeData *tree_node_data) {
   Context &g = *GGui;
   g.NavMoveScoringItems = false;
   g.LastItemData.ID = tree_node_data->ID;
@@ -25972,7 +27332,7 @@ void Gui::NavMoveRequestResolveWithPastTreeNode(
   NavUpdateAnyRequestFlag();
 }
 
-void Gui::NavMoveRequestCancel() {
+inline void Gui::NavMoveRequestCancel() {
   Context &g = *GGui;
   g.NavMoveSubmitted = g.NavMoveScoringItems = false;
   NavUpdateAnyRequestFlag();
@@ -25980,9 +27340,9 @@ void Gui::NavMoveRequestCancel() {
 
 // Forward will reuse the move request again on the next frame (generally with
 // modifications done to it)
-void Gui::NavMoveRequestForward(Dir move_dir, Dir clip_dir,
-                                NavMoveFlags move_flags,
-                                ScrollFlags scroll_flags) {
+inline void Gui::NavMoveRequestForward(Dir move_dir, Dir clip_dir,
+                                       NavMoveFlags move_flags,
+                                       ScrollFlags scroll_flags) {
   Context &g = *GGui;
   GUI_ASSERT(g.NavMoveForwardToNextFrame == false);
   NavMoveRequestCancel();
@@ -25996,7 +27356,8 @@ void Gui::NavMoveRequestForward(Dir move_dir, Dir clip_dir,
 // Navigation wrap-around logic is delayed to the end of the frame because this
 // operation is only valid after entire popup is assembled and in case of
 // appended popups it is not clear which EndPopup() call is final.
-void Gui::NavMoveRequestTryWrapping(Window *window, NavMoveFlags wrap_flags) {
+inline void Gui::NavMoveRequestTryWrapping(Window *window,
+                                           NavMoveFlags wrap_flags) {
   Context &g = *GGui;
   GUI_ASSERT((wrap_flags & NavMoveFlags_WrapMask_) != 0 &&
              (wrap_flags & ~NavMoveFlags_WrapMask_) ==
@@ -26051,12 +27412,6 @@ void Gui::NavRestoreLayer(NavLayer layer) {
   }
 }
 
-void Gui::NavRestoreHighlightAfterMove() {
-  Context &g = *GGui;
-  g.NavDisableHighlight = false;
-  g.NavDisableMouseHover = g.NavMousePosDirty = true;
-}
-
 static inline void Gui::NavUpdateAnyRequestFlag() {
   Context &g = *GGui;
   g.NavAnyRequest = g.NavMoveScoringItems || g.NavInitRequest ||
@@ -26066,7 +27421,7 @@ static inline void Gui::NavUpdateAnyRequestFlag() {
 }
 
 // This needs to be called before we submit any widget (aka in or before Begin)
-void Gui::NavInitWindow(Window *window, bool force_reinit) {
+inline void Gui::NavInitWindow(Window *window, bool force_reinit) {
   Context &g = *GGui;
   GUI_ASSERT(window == g.NavWindow);
 
@@ -26132,7 +27487,7 @@ static Vec2 Gui::NavCalcPreferredRefPos() {
   }
 }
 
-float Gui::GetNavTweakPressedAmount(Axis axis) {
+inline float Gui::GetNavTweakPressedAmount(Axis axis) {
   Context &g = *GGui;
   float repeat_delay, repeat_rate;
   GetTypematicRepeatRate(InputFlags_RepeatRateNavTweak, &repeat_delay,
@@ -26369,7 +27724,7 @@ static void Gui::NavUpdate() {
 #endif
 }
 
-void Gui::NavInitRequestApplyResult() {
+inline void Gui::NavInitRequestApplyResult() {
   // In very rare cases g.NavWindow may be null (e.g. clearing focus after
   // requesting an init request, which does happen when releasing Alt while
   // clicking on void)
@@ -26647,7 +28002,7 @@ void Gui::NavUpdateCreateTabbingRequest() {
 
 // Apply result from previous frame navigation directional move request. Always
 // called from NavUpdate()
-void Gui::NavMoveRequestApplyResult() {
+inline void Gui::NavMoveRequestApplyResult() {
   Context &g = *GGui;
 #if GUI_DEBUG_NAV_SCORING
   if (g.NavMoveFlags & NavMoveFlags_DebugNoResult) // [DEBUG] Scoring all items
@@ -27335,12 +28690,7 @@ void Gui::NavUpdateWindowingOverlay() {
 // [SECTION] DRAG AND DROP
 //-----------------------------------------------------------------------------
 
-bool Gui::IsDragDropActive() {
-  Context &g = *GGui;
-  return g.DragDropActive;
-}
-
-void Gui::ClearDragDrop() {
+inline void Gui::ClearDragDrop() {
   Context &g = *GGui;
   g.DragDropActive = false;
   g.DragDropPayload.Clear();
@@ -27353,17 +28703,6 @@ void Gui::ClearDragDrop() {
   memset(&g.DragDropPayloadBufLocal, 0, sizeof(g.DragDropPayloadBufLocal));
 }
 
-bool Gui::BeginTooltipHidden() {
-  Context &g = *GGui;
-  bool ret = Begin("##Tooltip_Hidden", NULL,
-                   WindowFlags_Tooltip | WindowFlags_NoInputs |
-                       WindowFlags_NoTitleBar | WindowFlags_NoMove |
-                       WindowFlags_NoResize | WindowFlags_NoSavedSettings |
-                       WindowFlags_AlwaysAutoResize);
-  SetWindowHiddenAndSkipItemsForCurrentFrame(g.CurrentWindow);
-  return ret;
-}
-
 // When this returns true you need to: a) call SetDragDropPayload() exactly
 // once, b) you may render the payload visual/description, c) call
 // EndDragDropSource() If the item has an identifier:
@@ -27374,7 +28713,7 @@ bool Gui::BeginTooltipHidden() {
 // - We then pull and use the mouse button that was used to activate the item
 // and use it to carry on the drag. If the item has no identifier:
 // - Currently always assume left mouse button.
-bool Gui::BeginDragDropSource(DragDropFlags flags) {
+inline bool Gui::BeginDragDropSource(DragDropFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -27493,7 +28832,7 @@ bool Gui::BeginDragDropSource(DragDropFlags flags) {
   return false;
 }
 
-void Gui::EndDragDropSource() {
+inline void Gui::EndDragDropSource() {
   Context &g = *GGui;
   GUI_ASSERT(g.DragDropActive);
   GUI_ASSERT(g.DragDropWithinSource && "Not after a BeginDragDropSource()?");
@@ -27508,8 +28847,8 @@ void Gui::EndDragDropSource() {
 }
 
 // Use 'cond' to choose to submit payload on drag start or every frame
-bool Gui::SetDragDropPayload(const char *type, const void *data,
-                             size_t data_size, Cond cond) {
+inline bool Gui::SetDragDropPayload(const char *type, const void *data,
+                                    size_t data_size, Cond cond) {
   Context &g = *GGui;
   Payload &payload = g.DragDropPayload;
   if (cond == 0)
@@ -27551,7 +28890,7 @@ bool Gui::SetDragDropPayload(const char *type, const void *data,
          (g.DragDropAcceptFrameCount == g.FrameCount - 1);
 }
 
-bool Gui::BeginDragDropTargetCustom(const Rect &bb, ID id) {
+inline bool Gui::BeginDragDropTargetCustom(const Rect &bb, ID id) {
   Context &g = *GGui;
   if (!g.DragDropActive)
     return false;
@@ -27586,7 +28925,7 @@ bool Gui::BeginDragDropTargetCustom(const Rect &bb, ID id) {
 // fast as we can. Also note how the HoveredWindow test is positioned
 // differently in both functions (in both functions we optimize for the cheapest
 // early out case)
-bool Gui::BeginDragDropTarget() {
+inline bool Gui::BeginDragDropTarget() {
   Context &g = *GGui;
   if (!g.DragDropActive)
     return false;
@@ -27622,13 +28961,8 @@ bool Gui::BeginDragDropTarget() {
   return true;
 }
 
-bool Gui::IsDragDropPayloadBeingAccepted() {
-  Context &g = *GGui;
-  return g.DragDropActive && g.DragDropAcceptIdPrev != 0;
-}
-
-const Payload *Gui::AcceptDragDropPayload(const char *type,
-                                          DragDropFlags flags) {
+inline const Payload *Gui::AcceptDragDropPayload(const char *type,
+                                                 DragDropFlags flags) {
   Context &g = *GGui;
   Payload &payload = g.DragDropPayload;
   GUI_ASSERT(g.DragDropActive); // Not called between BeginDragDropTarget() and
@@ -27682,31 +29016,15 @@ const Payload *Gui::AcceptDragDropPayload(const char *type,
 
 // FIXME-STYLE FIXME-DRAGDROP: Settle on a proper default visuals for drop
 // target.
-void Gui::RenderDragDropTargetRect(const Rect &bb, const Rect &item_clip_rect) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Rect bb_display = bb;
-  bb_display.ClipWith(
-      item_clip_rect); // Clip THEN expand so we have a way to visualize that
-                       // target is not entirely visible.
-  bb_display.Expand(3.5f);
-  bool push_clip_rect = !window->ClipRect.Contains(bb_display);
-  if (push_clip_rect)
-    window->DrawList->PushClipRectFullScreen();
-  window->DrawList->AddRect(bb_display.Min, bb_display.Max,
-                            GetColorU32(Col_DragDropTarget), 0.0f, 0, 2.0f);
-  if (push_clip_rect)
-    window->DrawList->PopClipRect();
-}
 
-const Payload *Gui::GetDragDropPayload() {
+inline const Payload *Gui::GetDragDropPayload() {
   Context &g = *GGui;
   return (g.DragDropActive && g.DragDropPayload.DataFrameCount != -1)
              ? &g.DragDropPayload
              : NULL;
 }
 
-void Gui::EndDragDropTarget() {
+inline void Gui::EndDragDropTarget() {
   Context &g = *GGui;
   GUI_ASSERT(g.DragDropActive);
   GUI_ASSERT(g.DragDropWithinTarget);
@@ -27736,7 +29054,7 @@ static inline void LogTextV(Context &g, const char *fmt, va_list args) {
   }
 }
 
-void Gui::LogText(const char *fmt, ...) {
+inline void Gui::LogText(const char *fmt, ...) {
   Context &g = *GGui;
   if (!g.LogEnabled)
     return;
@@ -27747,7 +29065,7 @@ void Gui::LogText(const char *fmt, ...) {
   va_end(args);
 }
 
-void Gui::LogTextV(const char *fmt, va_list args) {
+inline void Gui::LogTextV(const char *fmt, va_list args) {
   Context &g = *GGui;
   if (!g.LogEnabled)
     return;
@@ -27760,8 +29078,8 @@ void Gui::LogTextV(const char *fmt, va_list args) {
 // current tree level padding
 // FIXME: This code is a little complicated perhaps, considering simplifying the
 // whole system.
-void Gui::LogRenderedText(const Vec2 *ref_pos, const char *text,
-                          const char *text_end) {
+inline void Gui::LogRenderedText(const Vec2 *ref_pos, const char *text,
+                                 const char *text_end) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -27820,7 +29138,7 @@ void Gui::LogRenderedText(const Vec2 *ref_pos, const char *text,
 }
 
 // Start logging/capturing text output
-void Gui::LogBegin(LogType type, int auto_open_depth) {
+inline void Gui::LogBegin(LogType type, int auto_open_depth) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(g.LogEnabled == false);
@@ -27838,13 +29156,8 @@ void Gui::LogBegin(LogType type, int auto_open_depth) {
 
 // Important: doesn't copy underlying data, use carefully (prefix/suffix must be
 // in scope at the time of the next LogRenderedText)
-void Gui::LogSetNextTextDecoration(const char *prefix, const char *suffix) {
-  Context &g = *GGui;
-  g.LogNextPrefix = prefix;
-  g.LogNextSuffix = suffix;
-}
 
-void Gui::LogToTTY(int auto_open_depth) {
+inline void Gui::LogToTTY(int auto_open_depth) {
   Context &g = *GGui;
   if (g.LogEnabled)
     return;
@@ -27856,7 +29169,7 @@ void Gui::LogToTTY(int auto_open_depth) {
 }
 
 // Start logging/capturing text output to given file
-void Gui::LogToFile(int auto_open_depth, const char *filename) {
+inline void Gui::LogToFile(int auto_open_depth, const char *filename) {
   Context &g = *GGui;
   if (g.LogEnabled)
     return;
@@ -27881,21 +29194,14 @@ void Gui::LogToFile(int auto_open_depth, const char *filename) {
 }
 
 // Start logging/capturing text output to clipboard
-void Gui::LogToClipboard(int auto_open_depth) {
+inline void Gui::LogToClipboard(int auto_open_depth) {
   Context &g = *GGui;
   if (g.LogEnabled)
     return;
   LogBegin(LogType_Clipboard, auto_open_depth);
 }
 
-void Gui::LogToBuffer(int auto_open_depth) {
-  Context &g = *GGui;
-  if (g.LogEnabled)
-    return;
-  LogBegin(LogType_Buffer, auto_open_depth);
-}
-
-void Gui::LogFinish() {
+inline void Gui::LogFinish() {
   Context &g = *GGui;
   if (!g.LogEnabled)
     return;
@@ -27930,7 +29236,7 @@ void Gui::LogFinish() {
 // Helper to display logging buttons
 // FIXME-OBSOLETE: We should probably obsolete this and let the user have their
 // own helper (this is one of the oldest function alive!)
-void Gui::LogButtons() {
+inline void Gui::LogButtons() {
   Context &g = *GGui;
 
   PushID("LogButtons");
@@ -28006,50 +29312,21 @@ void Gui::UpdateSettings() {
   }
 }
 
-void Gui::MarkIniSettingsDirty() {
-  Context &g = *GGui;
-  if (g.SettingsDirtyTimer <= 0.0f)
-    g.SettingsDirtyTimer = g.IO.IniSavingRate;
-}
-
-void Gui::MarkIniSettingsDirty(Window *window) {
-  Context &g = *GGui;
-  if (!(window->Flags & WindowFlags_NoSavedSettings))
-    if (g.SettingsDirtyTimer <= 0.0f)
-      g.SettingsDirtyTimer = g.IO.IniSavingRate;
-}
-
-void Gui::AddSettingsHandler(const SettingsHandler *handler) {
+inline void Gui::AddSettingsHandler(const SettingsHandler *handler) {
   Context &g = *GGui;
   GUI_ASSERT(FindSettingsHandler(handler->TypeName) == NULL);
   g.SettingsHandlers.push_back(*handler);
 }
 
-void Gui::RemoveSettingsHandler(const char *type_name) {
+inline void Gui::RemoveSettingsHandler(const char *type_name) {
   Context &g = *GGui;
   if (SettingsHandler *handler = FindSettingsHandler(type_name))
     g.SettingsHandlers.erase(handler);
 }
 
-SettingsHandler *Gui::FindSettingsHandler(const char *type_name) {
-  Context &g = *GGui;
-  const ID type_hash = HashStr(type_name);
-  for (SettingsHandler &handler : g.SettingsHandlers)
-    if (handler.TypeHash == type_hash)
-      return &handler;
-  return NULL;
-}
-
 // Clear all settings (windows, tables, docking etc.)
-void Gui::ClearIniSettings() {
-  Context &g = *GGui;
-  g.SettingsIniData.clear();
-  for (SettingsHandler &handler : g.SettingsHandlers)
-    if (handler.ClearAllFn != NULL)
-      handler.ClearAllFn(&g, &handler);
-}
 
-void Gui::LoadIniSettingsFromDisk(const char *ini_filename) {
+inline void Gui::LoadIniSettingsFromDisk(const char *ini_filename) {
   size_t file_data_size = 0;
   char *file_data =
       (char *)FileLoadToMemory(ini_filename, "rb", &file_data_size);
@@ -28063,7 +29340,8 @@ void Gui::LoadIniSettingsFromDisk(const char *ini_filename) {
 // Zero-tolerance, no error reporting, cheap .ini parsing
 // Set ini_size==0 to let us use strlen(ini_data). Do not call this function
 // with a 0 if your buffer is actually empty!
-void Gui::LoadIniSettingsFromMemory(const char *ini_data, size_t ini_size) {
+inline void Gui::LoadIniSettingsFromMemory(const char *ini_data,
+                                           size_t ini_size) {
   Context &g = *GGui;
   GUI_ASSERT(g.Initialized);
   // GUI_ASSERT(!g.WithinFrameScope && "Cannot be called between NewFrame() and
@@ -28137,7 +29415,7 @@ void Gui::LoadIniSettingsFromMemory(const char *ini_data, size_t ini_size) {
       handler.ApplyAllFn(&g, &handler);
 }
 
-void Gui::SaveIniSettingsToDisk(const char *ini_filename) {
+inline void Gui::SaveIniSettingsToDisk(const char *ini_filename) {
   Context &g = *GGui;
   g.SettingsDirtyTimer = 0.0f;
   if (!ini_filename)
@@ -28154,7 +29432,7 @@ void Gui::SaveIniSettingsToDisk(const char *ini_filename) {
 
 // Call registered handlers (e.g. SettingsHandlerWindow_WriteAll() + custom
 // handlers) to write their stuff into a text buffer
-const char *Gui::SaveIniSettingsToMemory(size_t *out_size) {
+inline const char *Gui::SaveIniSettingsToMemory(size_t *out_size) {
   Context &g = *GGui;
   g.SettingsDirtyTimer = 0.0f;
   g.SettingsIniData.Buf.resize(0);
@@ -28166,7 +29444,7 @@ const char *Gui::SaveIniSettingsToMemory(size_t *out_size) {
   return g.SettingsIniData.c_str();
 }
 
-WindowSettings *Gui::CreateNewWindowSettings(const char *name) {
+inline WindowSettings *Gui::CreateNewWindowSettings(const char *name) {
   Context &g = *GGui;
 
   if (g.IO.ConfigDebugIniSettings == false) {
@@ -28191,27 +29469,13 @@ WindowSettings *Gui::CreateNewWindowSettings(const char *name) {
 // We don't provide a FindWindowSettingsByName() because Docking system doesn't
 // always hold on names. This is called once per window .ini entry + once per
 // newly instantiated window.
-WindowSettings *Gui::FindWindowSettingsByID(ID id) {
-  Context &g = *GGui;
-  for (WindowSettings *settings = g.SettingsWindows.begin(); settings != NULL;
-       settings = g.SettingsWindows.next_chunk(settings))
-    if (settings->ID == id && !settings->WantDelete)
-      return settings;
-  return NULL;
-}
 
 // This is faster if you are holding on a Window already as we don't need to
 // perform a search.
-WindowSettings *Gui::FindWindowSettingsByWindow(Window *window) {
-  Context &g = *GGui;
-  if (window->SettingsOffset != -1)
-    return g.SettingsWindows.ptr_from_offset(window->SettingsOffset);
-  return FindWindowSettingsByID(window->ID);
-}
 
 // This will revert window to its initial state, including enabling the
 // Cond_FirstUseEver/Cond_Once conditions once more.
-void Gui::ClearWindowSettings(const char *name) {
+inline void Gui::ClearWindowSettings(const char *name) {
   // GUI_DEBUG_LOG("ClearWindowSettings('%s')\n", name);
   Window *window = FindWindowByName(name);
   if (window != NULL) {
@@ -28319,12 +29583,6 @@ static void WindowSettingsHandler_WriteAll(Context *ctx,
 // [SECTION] LOCALIZATION
 //-----------------------------------------------------------------------------
 
-void Gui::LocalizeRegisterEntries(const LocEntry *entries, int count) {
-  Context &g = *GGui;
-  for (int n = 0; n < count; n++)
-    g.LocalizationTable[entries[n].Key] = entries[n].Text;
-}
-
 //-----------------------------------------------------------------------------
 // [SECTION] VIEWPORTS, PLATFORM WINDOWS
 //-----------------------------------------------------------------------------
@@ -28334,13 +29592,9 @@ void Gui::LocalizeRegisterEntries(const LocEntry *entries, int count) {
 // (this section is more complete in the 'docking' branch)
 //-----------------------------------------------------------------------------
 
-Viewport *Gui::GetMainViewport() {
+inline Viewport *Gui::GetMainViewport() {
   Context &g = *GGui;
   return g.Viewports[0];
-}
-
-void Gui::SetWindowViewport(Window *window, ViewportP *viewport) {
-  window->Viewport = viewport;
 }
 
 // Update viewports and monitor infos
@@ -28568,8 +29822,9 @@ static void SetPlatformImeDataFn_DefaultImpl(Viewport *, PlatformImeData *) {}
 
 #ifndef GUI_DISABLE_DEBUG_TOOLS
 
-void Gui::DebugRenderViewportThumbnail(DrawList *draw_list, ViewportP *viewport,
-                                       const Rect &bb) {
+inline void Gui::DebugRenderViewportThumbnail(DrawList *draw_list,
+                                              ViewportP *viewport,
+                                              const Rect &bb) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -28635,7 +29890,7 @@ static void RenderViewportsThumbnails() {
 }
 
 // Draw an arbitrary US keyboard layout to visualize translated keys
-void Gui::DebugRenderKeyboardPreview(DrawList *draw_list) {
+inline void Gui::DebugRenderKeyboardPreview(DrawList *draw_list) {
   const Vec2 key_size = Vec2(35.0f, 35.0f);
   const float key_rounding = 3.0f;
   const Vec2 key_face_size = Vec2(25.0f, 25.0f);
@@ -28700,7 +29955,7 @@ void Gui::DebugRenderKeyboardPreview(DrawList *draw_list) {
 
 // Helper tool to diagnose between text encoding issues and font loading issues.
 // Pass your UTF-8 string and verify that there are correct.
-void Gui::DebugTextEncoding(const char *str) {
+inline void Gui::DebugTextEncoding(const char *str) {
   Text("Text: \"%s\"", str);
   if (!BeginTable("##DebugTextEncoding", 4,
                   TableFlags_Borders | TableFlags_RowBg |
@@ -28744,7 +29999,7 @@ static void DebugFlashStyleColorStop() {
 
 // Flash a given style color for some + inhibit modifications of this color via
 // PushStyleColor() calls.
-void Gui::DebugFlashStyleColor(Col idx) {
+inline void Gui::DebugFlashStyleColor(Col idx) {
   Context &g = *GGui;
   DebugFlashStyleColorStop();
   g.DebugFlashStyleColorTime = 0.5f;
@@ -28777,7 +30032,7 @@ static void MetricsHelpMarker(const char *desc) {
 }
 
 // [DEBUG] List fonts in a font atlas and display its texture
-void Gui::ShowFontAtlas(FontAtlas *atlas) {
+inline void Gui::ShowFontAtlas(FontAtlas *atlas) {
   for (Font *font : atlas->Fonts) {
     PushID(font);
     DebugNodeFont(font);
@@ -28802,7 +30057,7 @@ void Gui::ShowFontAtlas(FontAtlas *atlas) {
   }
 }
 
-void Gui::ShowMetricsWindow(bool *p_open) {
+inline void Gui::ShowMetricsWindow(bool *p_open) {
   Context &g = *GGui;
   IO &io = g.IO;
   MetricsConfig *cfg = &g.DebugMetricsConfig;
@@ -29558,7 +30813,7 @@ void Gui::ShowMetricsWindow(bool *p_open) {
 }
 
 // [DEBUG] Display contents of Columns
-void Gui::DebugNodeColumns(OldColumns *columns) {
+inline void Gui::DebugNodeColumns(OldColumns *columns) {
   if (!TreeNode((void *)(uintptr_t)columns->ID,
                 "Columns Id: 0x%08X, Count: %d, Flags: 0x%04X", columns->ID,
                 columns->Count, columns->Flags))
@@ -29582,8 +30837,9 @@ static void FormatTextureIDForDebugDisplay(char *buf, int buf_size,
 }
 
 // [DEBUG] Display contents of DrawList
-void Gui::DebugNodeDrawList(Window *window, ViewportP *viewport,
-                            const DrawList *draw_list, const char *label) {
+inline void Gui::DebugNodeDrawList(Window *window, ViewportP *viewport,
+                                   const DrawList *draw_list,
+                                   const char *label) {
   Context &g = *GGui;
   GUI_UNUSED(viewport); // Used in docking branch
   MetricsConfig *cfg = &g.DebugMetricsConfig;
@@ -29713,11 +30969,9 @@ void Gui::DebugNodeDrawList(Window *window, ViewportP *viewport,
 }
 
 // [DEBUG] Display mesh/aabb of a DrawCmd
-void Gui::DebugNodeDrawCmdShowMeshAndBoundingBox(DrawList *out_draw_list,
-                                                 const DrawList *draw_list,
-                                                 const DrawCmd *draw_cmd,
-                                                 bool show_mesh,
-                                                 bool show_aabb) {
+inline void Gui::DebugNodeDrawCmdShowMeshAndBoundingBox(
+    DrawList *out_draw_list, const DrawList *draw_list, const DrawCmd *draw_cmd,
+    bool show_mesh, bool show_aabb) {
   GUI_ASSERT(show_mesh || show_aabb);
 
   // Draw wire-frame version of all triangles
@@ -29763,7 +31017,7 @@ void Gui::DebugNodeDrawCmdShowMeshAndBoundingBox(DrawList *out_draw_list,
 }
 
 // [DEBUG] Display details for a single font, called by ShowStyleEditor().
-void Gui::DebugNodeFont(Font *font) {
+inline void Gui::DebugNodeFont(Font *font) {
   bool opened =
       TreeNode(font, "Font: \"%s\"\n%.2f px, %d glyphs, %d file(s)",
                font->ConfigData ? font->ConfigData[0].Name : "", font->FontSize,
@@ -29868,109 +31122,11 @@ void Gui::DebugNodeFont(Font *font) {
   TreePop();
 }
 
-void Gui::DebugNodeFontGlyph(Font *, const FontGlyph *glyph) {
-  Text("Codepoint: U+%04X", glyph->Codepoint);
-  Separator();
-  Text("Visible: %d", glyph->Visible);
-  Text("AdvanceX: %.1f", glyph->AdvanceX);
-  Text("Pos: (%.2f,%.2f)->(%.2f,%.2f)", glyph->X0, glyph->Y0, glyph->X1,
-       glyph->Y1);
-  Text("UV: (%.3f,%.3f)->(%.3f,%.3f)", glyph->U0, glyph->V0, glyph->U1,
-       glyph->V1);
-}
-
 // [DEBUG] Display contents of Storage
-void Gui::DebugNodeStorage(Storage *storage, const char *label) {
-  if (!TreeNode(label, "%s: %d entries, %d bytes", label, storage->Data.Size,
-                storage->Data.size_in_bytes()))
-    return;
-  for (const Storage::StoragePair &p : storage->Data)
-    BulletText("Key 0x%08X Value { i: %d }", p.key,
-               p.val_i); // Important: we currently don't store a type, real
-                         // value may not be integer.
-  TreePop();
-}
 
 // [DEBUG] Display contents of TabBar
-void Gui::DebugNodeTabBar(TabBar *tab_bar, const char *label) {
-  // Standalone tab bars (not associated to docking/windows functionality)
-  // currently hold no discernible strings.
-  char buf[256];
-  char *p = buf;
-  const char *buf_end = buf + GUI_ARRAYSIZE(buf);
-  const bool is_active = (tab_bar->PrevFrameVisible >= GetFrameCount() - 2);
-  p += FormatString(p, buf_end - p, "%s 0x%08X (%d tabs)%s  {", label,
-                    tab_bar->ID, tab_bar->Tabs.Size,
-                    is_active ? "" : " *Inactive*");
-  for (int tab_n = 0; tab_n < Min(tab_bar->Tabs.Size, 3); tab_n++) {
-    TabItem *tab = &tab_bar->Tabs[tab_n];
-    p += FormatString(p, buf_end - p, "%s'%s'", tab_n > 0 ? ", " : "",
-                      TabBarGetTabName(tab_bar, tab));
-  }
-  p +=
-      FormatString(p, buf_end - p, (tab_bar->Tabs.Size > 3) ? " ... }" : " } ");
-  if (!is_active) {
-    PushStyleColor(Col_Text, GetStyleColorVec4(Col_TextDisabled));
-  }
-  bool open = TreeNode(label, "%s", buf);
-  if (!is_active) {
-    PopStyleColor();
-  }
-  if (is_active && IsItemHovered()) {
-    DrawList *draw_list = GetForegroundDrawList();
-    draw_list->AddRect(tab_bar->BarRect.Min, tab_bar->BarRect.Max,
-                       GUI_COL32(255, 255, 0, 255));
-    draw_list->AddLine(Vec2(tab_bar->ScrollingRectMinX, tab_bar->BarRect.Min.y),
-                       Vec2(tab_bar->ScrollingRectMinX, tab_bar->BarRect.Max.y),
-                       GUI_COL32(0, 255, 0, 255));
-    draw_list->AddLine(Vec2(tab_bar->ScrollingRectMaxX, tab_bar->BarRect.Min.y),
-                       Vec2(tab_bar->ScrollingRectMaxX, tab_bar->BarRect.Max.y),
-                       GUI_COL32(0, 255, 0, 255));
-  }
-  if (open) {
-    for (int tab_n = 0; tab_n < tab_bar->Tabs.Size; tab_n++) {
-      TabItem *tab = &tab_bar->Tabs[tab_n];
-      PushID(tab);
-      if (SmallButton("<")) {
-        TabBarQueueReorder(tab_bar, tab, -1);
-      }
-      SameLine(0, 2);
-      if (SmallButton(">")) {
-        TabBarQueueReorder(tab_bar, tab, +1);
-      }
-      SameLine();
-      Text("%02d%c Tab 0x%08X '%s' Offset: %.2f, Width: %.2f/%.2f", tab_n,
-           (tab->ID == tab_bar->SelectedTabId) ? '*' : ' ', tab->ID,
-           TabBarGetTabName(tab_bar, tab), tab->Offset, tab->Width,
-           tab->ContentWidth);
-      PopID();
-    }
-    TreePop();
-  }
-}
 
-void Gui::DebugNodeViewport(ViewportP *viewport) {
-  SetNextItemOpen(true, Cond_Once);
-  if (TreeNode("viewport0", "Viewport #%d", 0)) {
-    WindowFlags flags = viewport->Flags;
-    BulletText("Main Pos: (%.0f,%.0f), Size: (%.0f,%.0f)\nWorkArea Offset "
-               "Left: %.0f Top: %.0f, Right: %.0f, Bottom: %.0f",
-               viewport->Pos.x, viewport->Pos.y, viewport->Size.x,
-               viewport->Size.y, viewport->WorkOffsetMin.x,
-               viewport->WorkOffsetMin.y, viewport->WorkOffsetMax.x,
-               viewport->WorkOffsetMax.y);
-    BulletText(
-        "Flags: 0x%04X =%s%s%s", viewport->Flags,
-        (flags & ViewportFlags_IsPlatformWindow) ? " IsPlatformWindow" : "",
-        (flags & ViewportFlags_IsPlatformMonitor) ? " IsPlatformMonitor" : "",
-        (flags & ViewportFlags_OwnedByApp) ? " OwnedByApp" : "");
-    for (DrawList *draw_list : viewport->DrawDataP.CmdLists)
-      DebugNodeDrawList(NULL, viewport, draw_list, "DrawList");
-    TreePop();
-  }
-}
-
-void Gui::DebugNodeWindow(Window *window, const char *label) {
+inline void Gui::DebugNodeWindow(Window *window, const char *label) {
   if (window == NULL) {
     BulletText("%s: NULL", label);
     return;
@@ -30066,60 +31222,20 @@ void Gui::DebugNodeWindow(Window *window, const char *label) {
   TreePop();
 }
 
-void Gui::DebugNodeWindowSettings(WindowSettings *settings) {
-  if (settings->WantDelete)
-    BeginDisabled();
-  Text("0x%08X \"%s\" Pos (%d,%d) Size (%d,%d) Collapsed=%d", settings->ID,
-       settings->GetName(), settings->Pos.x, settings->Pos.y, settings->Size.x,
-       settings->Size.y, settings->Collapsed);
-  if (settings->WantDelete)
-    EndDisabled();
-}
-
-void Gui::DebugNodeWindowsList(Vector<Window *> *windows, const char *label) {
-  if (!TreeNode(label, "%s (%d)", label, windows->Size))
-    return;
-  for (int i = windows->Size - 1; i >= 0; i--) // Iterate front to back
-  {
-    PushID((*windows)[i]);
-    DebugNodeWindow((*windows)[i], "Window");
-    PopID();
-  }
-  TreePop();
-}
-
 // FIXME-OPT: This is technically suboptimal, but it is simpler this way.
-void Gui::DebugNodeWindowsListByBeginStackParent(
-    Window **windows, int windows_size, Window *parent_in_begin_stack) {
-  for (int i = 0; i < windows_size; i++) {
-    Window *window = windows[i];
-    if (window->ParentWindowInBeginStack != parent_in_begin_stack)
-      continue;
-    char buf[20];
-    FormatString(buf, GUI_ARRAYSIZE(buf), "[%04d] Window",
-                 window->BeginOrderWithinContext);
-    // BulletText("[%04d] Window '%s'", window->BeginOrderWithinContext,
-    // window->Name);
-    DebugNodeWindow(window, buf);
-    Indent();
-    DebugNodeWindowsListByBeginStackParent(windows + i + 1,
-                                           windows_size - i - 1, window);
-    Unindent();
-  }
-}
 
 //-----------------------------------------------------------------------------
 // [SECTION] DEBUG LOG WINDOW
 //-----------------------------------------------------------------------------
 
-void Gui::DebugLog(const char *fmt, ...) {
+inline void Gui::DebugLog(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   DebugLogV(fmt, args);
   va_end(args);
 }
 
-void Gui::DebugLogV(const char *fmt, va_list args) {
+inline void Gui::DebugLogV(const char *fmt, va_list args) {
   Context &g = *GGui;
   const int old_size = g.DebugLogBuf.size();
   g.DebugLogBuf.appendf("[%05d] ", g.FrameCount);
@@ -30133,7 +31249,7 @@ void Gui::DebugLogV(const char *fmt, va_list args) {
 #endif
 }
 
-void Gui::ShowDebugLogWindow(bool *p_open) {
+inline void Gui::ShowDebugLogWindow(bool *p_open) {
   Context &g = *GGui;
   if (!(g.NextWindowData.Flags & NextWindowDataFlags_HasSize))
     SetNextWindowSize(Vec2(0.0f, GetFontSize() * 12.0f), Cond_FirstUseEver);
@@ -30220,15 +31336,6 @@ void Gui::ShowDebugLogWindow(bool *p_open) {
 //-----------------------------------------------------------------------------
 
 // Draw a small cross at current CursorPos in current window's DrawList
-void Gui::DebugDrawCursorPos(U32 col) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Vec2 pos = window->DC.CursorPos;
-  window->DrawList->AddLine(Vec2(pos.x, pos.y - 3.0f),
-                            Vec2(pos.x, pos.y + 4.0f), col, 1.0f);
-  window->DrawList->AddLine(Vec2(pos.x - 3.0f, pos.y),
-                            Vec2(pos.x + 4.0f, pos.y), col, 1.0f);
-}
 
 // Draw a 10px wide rectangle around CurposPos.x using Line Y1/Y2 in current
 // window's DrawList
@@ -30249,23 +31356,11 @@ inline void Gui::DebugDrawLineExtents(U32 col) {
 }
 
 // Draw last item rect in ForegroundDrawList (so it is always visible)
-void Gui::DebugDrawItemRect(U32 col) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  GetForegroundDrawList(window)->AddRect(g.LastItemData.Rect.Min,
-                                         g.LastItemData.Rect.Max, col);
-}
 
 // [DEBUG] Locate item position/rectangle given an ID.
 static const U32 DEBUG_LOCATE_ITEM_COLOR = GUI_COL32(0, 255, 0, 255); // Green
 
-void Gui::DebugLocateItem(ID target_id) {
-  Context &g = *GGui;
-  g.DebugLocateId = target_id;
-  g.DebugLocateFrames = 2;
-}
-
-void Gui::DebugLocateItemOnHover(ID target_id) {
+inline void Gui::DebugLocateItemOnHover(ID target_id) {
   if (target_id == 0 ||
       !IsItemHovered(HoveredFlags_AllowWhenBlockedByActiveItem |
                      HoveredFlags_AllowWhenBlockedByPopup))
@@ -30278,7 +31373,7 @@ void Gui::DebugLocateItemOnHover(ID target_id) {
                 DEBUG_LOCATE_ITEM_COLOR);
 }
 
-void Gui::DebugLocateItemResolveWithLastItem() {
+inline void Gui::DebugLocateItemResolveWithLastItem() {
   Context &g = *GGui;
   LastItemData item_data = g.LastItemData;
   g.DebugLocateId = 0;
@@ -30374,8 +31469,8 @@ void Gui::UpdateDebugToolStackQueries() {
 }
 
 // [DEBUG] ID Stack tool: hooks called by GetID() family functions
-void Gui::DebugHookIdInfo(ID id, DataType data_type, const void *data_id,
-                          const void *data_id_end) {
+inline void Gui::DebugHookIdInfo(ID id, DataType data_type, const void *data_id,
+                                 const void *data_id_end) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   IDStackTool *tool = &g.DebugIDStackTool;
@@ -30462,7 +31557,7 @@ static int StackToolFormatLevelInfo(IDStackTool *tool, int n,
 }
 
 // ID Stack Tool: Display UI
-void Gui::ShowIDStackToolWindow(bool *p_open) {
+inline void Gui::ShowIDStackToolWindow(bool *p_open) {
   Context &g = *GGui;
   if (!(g.NextWindowData.Flags & NextWindowDataFlags_HasSize))
     SetNextWindowSize(Vec2(0.0f, GetFontSize() * 8.0f), Cond_FirstUseEver);
@@ -30896,7 +31991,7 @@ inline void Gui::StyleColorsDark(Style *dst) {
   colors[Col_ModalWindowDimBg] = Vec4(0.80f, 0.80f, 0.80f, 0.35f);
 }
 
-void Gui::StyleColorsClassic(Style *dst) {
+inline void Gui::StyleColorsClassic(Style *dst) {
   Style *style = dst ? dst : &Gui::GetStyle();
   Vec4 *colors = style->Colors;
 
@@ -30961,7 +32056,7 @@ void Gui::StyleColorsClassic(Style *dst) {
 
 // Those light colors are better suited with a thicker font than the default one
 // + FrameBorder
-void Gui::StyleColorsLight(Style *dst) {
+inline void Gui::StyleColorsLight(Style *dst) {
   Style *style = dst ? dst : &Gui::GetStyle();
   Vec4 *colors = style->Colors;
 
@@ -31028,7 +32123,7 @@ void Gui::StyleColorsLight(Style *dst) {
 // [SECTION] DrawList
 //-----------------------------------------------------------------------------
 
-DrawListSharedData::DrawListSharedData() {
+inline DrawListSharedData::DrawListSharedData() {
   memset(this, 0, sizeof(*this));
   for (int i = 0; i < GUI_ARRAYSIZE(ArcFastVtx); i++) {
     const float a = ((float)i * 2 * GUI_PI) / (float)GUI_ARRAYSIZE(ArcFastVtx);
@@ -31038,7 +32133,7 @@ DrawListSharedData::DrawListSharedData() {
       GUI_DRAWLIST_ARCFAST_SAMPLE_MAX, CircleSegmentMaxError);
 }
 
-void DrawListSharedData::SetCircleTessellationMaxError(float max_error) {
+inline void DrawListSharedData::SetCircleTessellationMaxError(float max_error) {
   if (CircleSegmentMaxError == max_error)
     return;
 
@@ -31057,7 +32152,7 @@ void DrawListSharedData::SetCircleTessellationMaxError(float max_error) {
 
 // Initialize before use in a new frame. We always have a command ready in the
 // buffer.
-void DrawList::_ResetForNewFrame() {
+inline void DrawList::_ResetForNewFrame() {
   // Verify that the DrawCmd fields we want to memcmp() are contiguous in
   // memory.
   GUI_STATIC_ASSERT(offsetof(DrawCmd, ClipRect) == 0);
@@ -31083,30 +32178,7 @@ void DrawList::_ResetForNewFrame() {
   _FringeScale = 1.0f;
 }
 
-void DrawList::_ClearFreeMemory() {
-  CmdBuffer.clear();
-  IdxBuffer.clear();
-  VtxBuffer.clear();
-  Flags = DrawListFlags_None;
-  _VtxCurrentIdx = 0;
-  _VtxWritePtr = NULL;
-  _IdxWritePtr = NULL;
-  _ClipRectStack.clear();
-  _TextureIdStack.clear();
-  _Path.clear();
-  _Splitter.ClearFreeMemory();
-}
-
-DrawList *DrawList::CloneOutput() const {
-  DrawList *dst = GUI_NEW(DrawList(_Data));
-  dst->CmdBuffer = CmdBuffer;
-  dst->IdxBuffer = IdxBuffer;
-  dst->VtxBuffer = VtxBuffer;
-  dst->Flags = Flags;
-  return dst;
-}
-
-void DrawList::AddDrawCmd() {
+inline void DrawList::AddDrawCmd() {
   DrawCmd draw_cmd;
   draw_cmd.ClipRect =
       _CmdHeader.ClipRect; // Same as calling DrawCmd_HeaderCopy()
@@ -31123,16 +32195,8 @@ void DrawList::AddDrawCmd() {
 // Note that this leaves the DrawList in a state unfit for further commands,
 // as most code assume that CmdBuffer.Size > 0 && CmdBuffer.back().UserCallback
 // == NULL
-void DrawList::_PopUnusedDrawCmd() {
-  while (CmdBuffer.Size > 0) {
-    DrawCmd *curr_cmd = &CmdBuffer.Data[CmdBuffer.Size - 1];
-    if (curr_cmd->ElemCount != 0 || curr_cmd->UserCallback != NULL)
-      return; // break;
-    CmdBuffer.pop_back();
-  }
-}
 
-void DrawList::AddCallback(DrawCallback callback, void *callback_data) {
+inline void DrawList::AddCallback(DrawCallback callback, void *callback_data) {
   GUI_ASSERT_PARANOID(CmdBuffer.Size > 0);
   DrawCmd *curr_cmd = &CmdBuffer.Data[CmdBuffer.Size - 1];
   GUI_ASSERT(curr_cmd->UserCallback == NULL);
@@ -31158,7 +32222,7 @@ void DrawList::AddCallback(DrawCallback callback, void *callback_data) {
   (CMD_0->IdxOffset + CMD_0->ElemCount == CMD_1->IdxOffset)
 
 // Try to merge two last draw commands
-void DrawList::_TryMergeDrawCmds() {
+inline void DrawList::_TryMergeDrawCmds() {
   GUI_ASSERT_PARANOID(CmdBuffer.Size > 0);
   DrawCmd *curr_cmd = &CmdBuffer.Data[CmdBuffer.Size - 1];
   DrawCmd *prev_cmd = curr_cmd - 1;
@@ -31174,7 +32238,7 @@ void DrawList::_TryMergeDrawCmds() {
 // AddLine AddRect etc. to not have to perform any check so we always have a
 // command ready in the stack. The cost of figuring out if a new command has to
 // be added or if we can merge is paid in those Update** functions only.
-void DrawList::_OnChangedClipRect() {
+inline void DrawList::_OnChangedClipRect() {
   // If current command is used with different settings we need to add a new
   // command
   GUI_ASSERT_PARANOID(CmdBuffer.Size > 0);
@@ -31199,7 +32263,7 @@ void DrawList::_OnChangedClipRect() {
   curr_cmd->ClipRect = _CmdHeader.ClipRect;
 }
 
-void DrawList::_OnChangedTextureID() {
+inline void DrawList::_OnChangedTextureID() {
   // If current command is used with different settings we need to add a new
   // command
   GUI_ASSERT_PARANOID(CmdBuffer.Size > 0);
@@ -31223,7 +32287,7 @@ void DrawList::_OnChangedTextureID() {
   curr_cmd->TextureId = _CmdHeader.TextureId;
 }
 
-void DrawList::_OnChangedVtxOffset() {
+inline void DrawList::_OnChangedVtxOffset() {
   // We don't need to compare curr_cmd->VtxOffset != _CmdHeader.VtxOffset
   // because we know it'll be different at the time we call this.
   _VtxCurrentIdx = 0;
@@ -31238,7 +32302,7 @@ void DrawList::_OnChangedVtxOffset() {
   curr_cmd->VtxOffset = _CmdHeader.VtxOffset;
 }
 
-int DrawList::_CalcCircleAutoSegmentCount(float radius) const {
+inline int DrawList::_CalcCircleAutoSegmentCount(float radius) const {
   // Automatic segment count
   const int radius_idx =
       (int)(radius + 0.999999f); // ceil to never reduce accuracy
@@ -31252,8 +32316,8 @@ int DrawList::_CalcCircleAutoSegmentCount(float radius) const {
 // Render-level scissoring. This is passed down to your render function but not
 // used for CPU-side coarse clipping. Prefer using higher-level
 // Gui::PushClipRect() to affect logic (hit-testing and widget culling)
-void DrawList::PushClipRect(const Vec2 &cr_min, const Vec2 &cr_max,
-                            bool intersect_with_current_clip_rect) {
+inline void DrawList::PushClipRect(const Vec2 &cr_min, const Vec2 &cr_max,
+                                   bool intersect_with_current_clip_rect) {
   Vec4 cr(cr_min.x, cr_min.y, cr_max.x, cr_max.y);
   if (intersect_with_current_clip_rect) {
     Vec4 current = _CmdHeader.ClipRect;
@@ -31274,12 +32338,12 @@ void DrawList::PushClipRect(const Vec2 &cr_min, const Vec2 &cr_max,
   _OnChangedClipRect();
 }
 
-void DrawList::PushClipRectFullScreen() {
+inline void DrawList::PushClipRectFullScreen() {
   PushClipRect(Vec2(_Data->ClipRectFullscreen.x, _Data->ClipRectFullscreen.y),
                Vec2(_Data->ClipRectFullscreen.z, _Data->ClipRectFullscreen.w));
 }
 
-void DrawList::PopClipRect() {
+inline void DrawList::PopClipRect() {
   _ClipRectStack.pop_back();
   _CmdHeader.ClipRect = (_ClipRectStack.Size == 0)
                             ? _Data->ClipRectFullscreen
@@ -31287,25 +32351,11 @@ void DrawList::PopClipRect() {
   _OnChangedClipRect();
 }
 
-void DrawList::PushTextureID(TextureID texture_id) {
-  _TextureIdStack.push_back(texture_id);
-  _CmdHeader.TextureId = texture_id;
-  _OnChangedTextureID();
-}
-
-void DrawList::PopTextureID() {
-  _TextureIdStack.pop_back();
-  _CmdHeader.TextureId = (_TextureIdStack.Size == 0)
-                             ? (TextureID)NULL
-                             : _TextureIdStack.Data[_TextureIdStack.Size - 1];
-  _OnChangedTextureID();
-}
-
 // Reserve space for a number of vertices and indices.
 // You must finish filling your reserved data before calling PrimReserve()
 // again, as it may reallocate or submit the intermediate results.
 // PrimUnreserve() can be used to release unused allocations.
-void DrawList::PrimReserve(int idx_count, int vtx_count) {
+inline void DrawList::PrimReserve(int idx_count, int vtx_count) {
   // Large mesh support (when enabled)
   GUI_ASSERT_PARANOID(idx_count >= 0 && vtx_count >= 0);
   if (sizeof(DrawIdx) == 2 && (_VtxCurrentIdx + vtx_count >= (1 << 16)) &&
@@ -31333,7 +32383,7 @@ void DrawList::PrimReserve(int idx_count, int vtx_count) {
 
 // Release the a number of reserved vertices/indices from the end of the last
 // reservation made with PrimReserve().
-void DrawList::PrimUnreserve(int idx_count, int vtx_count) {
+inline void DrawList::PrimUnreserve(int idx_count, int vtx_count) {
   GUI_ASSERT_PARANOID(idx_count >= 0 && vtx_count >= 0);
 
   DrawCmd *draw_cmd = &CmdBuffer.Data[CmdBuffer.Size - 1];
@@ -31343,7 +32393,7 @@ void DrawList::PrimUnreserve(int idx_count, int vtx_count) {
 }
 
 // Fully unrolled with inline call to keep our debug builds decently fast.
-void DrawList::PrimRect(const Vec2 &a, const Vec2 &c, U32 col) {
+inline void DrawList::PrimRect(const Vec2 &a, const Vec2 &c, U32 col) {
   Vec2 b(c.x, a.y), d(a.x, c.y), uv(_Data->TexUvWhitePixel);
   DrawIdx idx = (DrawIdx)_VtxCurrentIdx;
   _IdxWritePtr[0] = idx;
@@ -31363,60 +32413,6 @@ void DrawList::PrimRect(const Vec2 &a, const Vec2 &c, U32 col) {
   _VtxWritePtr[2].col = col;
   _VtxWritePtr[3].pos = d;
   _VtxWritePtr[3].uv = uv;
-  _VtxWritePtr[3].col = col;
-  _VtxWritePtr += 4;
-  _VtxCurrentIdx += 4;
-  _IdxWritePtr += 6;
-}
-
-void DrawList::PrimRectUV(const Vec2 &a, const Vec2 &c, const Vec2 &uv_a,
-                          const Vec2 &uv_c, U32 col) {
-  Vec2 b(c.x, a.y), d(a.x, c.y), uv_b(uv_c.x, uv_a.y), uv_d(uv_a.x, uv_c.y);
-  DrawIdx idx = (DrawIdx)_VtxCurrentIdx;
-  _IdxWritePtr[0] = idx;
-  _IdxWritePtr[1] = (DrawIdx)(idx + 1);
-  _IdxWritePtr[2] = (DrawIdx)(idx + 2);
-  _IdxWritePtr[3] = idx;
-  _IdxWritePtr[4] = (DrawIdx)(idx + 2);
-  _IdxWritePtr[5] = (DrawIdx)(idx + 3);
-  _VtxWritePtr[0].pos = a;
-  _VtxWritePtr[0].uv = uv_a;
-  _VtxWritePtr[0].col = col;
-  _VtxWritePtr[1].pos = b;
-  _VtxWritePtr[1].uv = uv_b;
-  _VtxWritePtr[1].col = col;
-  _VtxWritePtr[2].pos = c;
-  _VtxWritePtr[2].uv = uv_c;
-  _VtxWritePtr[2].col = col;
-  _VtxWritePtr[3].pos = d;
-  _VtxWritePtr[3].uv = uv_d;
-  _VtxWritePtr[3].col = col;
-  _VtxWritePtr += 4;
-  _VtxCurrentIdx += 4;
-  _IdxWritePtr += 6;
-}
-
-void DrawList::PrimQuadUV(const Vec2 &a, const Vec2 &b, const Vec2 &c,
-                          const Vec2 &d, const Vec2 &uv_a, const Vec2 &uv_b,
-                          const Vec2 &uv_c, const Vec2 &uv_d, U32 col) {
-  DrawIdx idx = (DrawIdx)_VtxCurrentIdx;
-  _IdxWritePtr[0] = idx;
-  _IdxWritePtr[1] = (DrawIdx)(idx + 1);
-  _IdxWritePtr[2] = (DrawIdx)(idx + 2);
-  _IdxWritePtr[3] = idx;
-  _IdxWritePtr[4] = (DrawIdx)(idx + 2);
-  _IdxWritePtr[5] = (DrawIdx)(idx + 3);
-  _VtxWritePtr[0].pos = a;
-  _VtxWritePtr[0].uv = uv_a;
-  _VtxWritePtr[0].col = col;
-  _VtxWritePtr[1].pos = b;
-  _VtxWritePtr[1].uv = uv_b;
-  _VtxWritePtr[1].col = col;
-  _VtxWritePtr[2].pos = c;
-  _VtxWritePtr[2].uv = uv_c;
-  _VtxWritePtr[2].col = col;
-  _VtxWritePtr[3].pos = d;
-  _VtxWritePtr[3].uv = uv_d;
   _VtxWritePtr[3].col = col;
   _VtxWritePtr += 4;
   _VtxCurrentIdx += 4;
@@ -31455,8 +32451,8 @@ void DrawList::PrimQuadUV(const Vec2 &a, const Vec2 &b, const Vec2 &c,
 // TODO: Thickness anti-aliased lines cap are missing their AA fringe.
 // We avoid using the Vec2 math operators here to reduce cost to a minimum for
 // debug/non-inlined builds.
-void DrawList::AddPolyline(const Vec2 *points, const int points_count, U32 col,
-                           DrawFlags flags, float thickness) {
+inline void DrawList::AddPolyline(const Vec2 *points, const int points_count,
+                                  U32 col, DrawFlags flags, float thickness) {
   if (points_count < 2 || (col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -31825,8 +32821,8 @@ void DrawList::AddPolyline(const Vec2 *points, const int points_count, U32 col,
 // - Filled shapes must always use clockwise winding order. The anti-aliasing
 // fringe depends on it. Counter-clockwise shapes will have "inward"
 // anti-aliasing.
-void DrawList::AddConvexPolyFilled(const Vec2 *points, const int points_count,
-                                   U32 col) {
+inline void DrawList::AddConvexPolyFilled(const Vec2 *points,
+                                          const int points_count, U32 col) {
   if (points_count < 3 || (col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -31915,9 +32911,9 @@ void DrawList::AddConvexPolyFilled(const Vec2 *points, const int points_count,
   }
 }
 
-void DrawList::_PathArcToFastEx(const Vec2 &center, float radius,
-                                int a_min_sample, int a_max_sample,
-                                int a_step) {
+inline void DrawList::_PathArcToFastEx(const Vec2 &center, float radius,
+                                       int a_min_sample, int a_max_sample,
+                                       int a_step) {
   if (radius < 0.5f) {
     _Path.push_back(center);
     return;
@@ -32004,8 +33000,8 @@ void DrawList::_PathArcToFastEx(const Vec2 &center, float radius,
   GUI_ASSERT_PARANOID(_Path.Data + _Path.Size == out_ptr);
 }
 
-void DrawList::_PathArcToN(const Vec2 &center, float radius, float a_min,
-                           float a_max, int num_segments) {
+inline void DrawList::_PathArcToN(const Vec2 &center, float radius, float a_min,
+                                  float a_max, int num_segments) {
   if (radius < 0.5f) {
     _Path.push_back(center);
     return;
@@ -32023,8 +33019,8 @@ void DrawList::_PathArcToN(const Vec2 &center, float radius, float a_min,
 }
 
 // 0: East, 3: South, 6: West, 9: North, 12: East
-void DrawList::PathArcToFast(const Vec2 &center, float radius, int a_min_of_12,
-                             int a_max_of_12) {
+inline void DrawList::PathArcToFast(const Vec2 &center, float radius,
+                                    int a_min_of_12, int a_max_of_12) {
   if (radius < 0.5f) {
     _Path.push_back(center);
     return;
@@ -32034,8 +33030,8 @@ void DrawList::PathArcToFast(const Vec2 &center, float radius, int a_min_of_12,
                    a_max_of_12 * GUI_DRAWLIST_ARCFAST_SAMPLE_MAX / 12, 0);
 }
 
-void DrawList::PathArcTo(const Vec2 &center, float radius, float a_min,
-                         float a_max, int num_segments) {
+inline void DrawList::PathArcTo(const Vec2 &center, float radius, float a_min,
+                                float a_max, int num_segments) {
   if (radius < 0.5f) {
     _Path.push_back(center);
     return;
@@ -32092,9 +33088,10 @@ void DrawList::PathArcTo(const Vec2 &center, float radius, float a_min,
   }
 }
 
-void DrawList::PathEllipticalArcTo(const Vec2 &center, float radius_x,
-                                   float radius_y, float rot, float a_min,
-                                   float a_max, int num_segments) {
+inline void DrawList::PathEllipticalArcTo(const Vec2 &center, float radius_x,
+                                          float radius_y, float rot,
+                                          float a_min, float a_max,
+                                          int num_segments) {
   if (num_segments <= 0)
     num_segments = _CalcCircleAutoSegmentCount(
         Max(radius_x, radius_y)); // A bit pessimistic, maybe there's a better
@@ -32113,27 +33110,6 @@ void DrawList::PathEllipticalArcTo(const Vec2 &center, float radius_x,
     point.y = rel_y + center.y;
     _Path.push_back(point);
   }
-}
-
-Vec2 BezierCubicCalc(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                     const Vec2 &p4, float t) {
-  float u = 1.0f - t;
-  float w1 = u * u * u;
-  float w2 = 3 * u * u * t;
-  float w3 = 3 * u * t * t;
-  float w4 = t * t * t;
-  return Vec2(w1 * p1.x + w2 * p2.x + w3 * p3.x + w4 * p4.x,
-              w1 * p1.y + w2 * p2.y + w3 * p3.y + w4 * p4.y);
-}
-
-Vec2 BezierQuadraticCalc(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                         float t) {
-  float u = 1.0f - t;
-  float w1 = u * u;
-  float w2 = 2 * u * t;
-  float w3 = t * t;
-  return Vec2(w1 * p1.x + w2 * p2.x + w3 * p3.x,
-              w1 * p1.y + w2 * p2.y + w3 * p3.y);
 }
 
 // Closely mimics BezierCubicClosestPointCasteljau() in gui.cpp
@@ -32183,8 +33159,8 @@ static void PathBezierQuadraticCurveToCasteljau(Vector<Vec2> *path, float x1,
   }
 }
 
-void DrawList::PathBezierCubicCurveTo(const Vec2 &p2, const Vec2 &p3,
-                                      const Vec2 &p4, int num_segments) {
+inline void DrawList::PathBezierCubicCurveTo(const Vec2 &p2, const Vec2 &p3,
+                                             const Vec2 &p4, int num_segments) {
   Vec2 p1 = _Path.back();
   if (num_segments == 0) {
     GUI_ASSERT(_Data->CurveTessellationTol > 0.0f);
@@ -32198,8 +33174,8 @@ void DrawList::PathBezierCubicCurveTo(const Vec2 &p2, const Vec2 &p3,
   }
 }
 
-void DrawList::PathBezierQuadraticCurveTo(const Vec2 &p2, const Vec2 &p3,
-                                          int num_segments) {
+inline void DrawList::PathBezierQuadraticCurveTo(const Vec2 &p2, const Vec2 &p3,
+                                                 int num_segments) {
   Vec2 p1 = _Path.back();
   if (num_segments == 0) {
     GUI_ASSERT(_Data->CurveTessellationTol > 0.0f);
@@ -32242,8 +33218,8 @@ with DrawFlags_RoundCornersNone or use 'float rounding = 0.0f' #endif
   return flags;
 }
 
-void DrawList::PathRect(const Vec2 &a, const Vec2 &b, float rounding,
-                        DrawFlags flags) {
+inline void DrawList::PathRect(const Vec2 &a, const Vec2 &b, float rounding,
+                               DrawFlags flags) {
   if (rounding >= 0.5f) {
     flags = FixRectCornerFlags(flags);
     rounding = Min(rounding,
@@ -32291,8 +33267,8 @@ void DrawList::PathRect(const Vec2 &a, const Vec2 &b, float rounding,
   }
 }
 
-void DrawList::AddLine(const Vec2 &p1, const Vec2 &p2, U32 col,
-                       float thickness) {
+inline void DrawList::AddLine(const Vec2 &p1, const Vec2 &p2, U32 col,
+                              float thickness) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
   PathLineTo(Add(p1, Vec2(0.5f, 0.5f)));
@@ -32302,8 +33278,9 @@ void DrawList::AddLine(const Vec2 &p1, const Vec2 &p2, U32 col,
 
 // p_min = upper-left, p_max = lower-right
 // Note we don't render 1 pixels sized rectangles properly.
-void DrawList::AddRect(const Vec2 &p_min, const Vec2 &p_max, U32 col,
-                       float rounding, DrawFlags flags, float thickness) {
+inline void DrawList::AddRect(const Vec2 &p_min, const Vec2 &p_max, U32 col,
+                              float rounding, DrawFlags flags,
+                              float thickness) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
   if (Flags & DrawListFlags_AntiAliasedLines)
@@ -32317,24 +33294,11 @@ void DrawList::AddRect(const Vec2 &p_min, const Vec2 &p_max, U32 col,
   PathStroke(col, DrawFlags_Closed, thickness);
 }
 
-void DrawList::AddRectFilled(const Vec2 &p_min, const Vec2 &p_max, U32 col,
-                             float rounding, DrawFlags flags) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-  if (rounding < 0.5f ||
-      (flags & DrawFlags_RoundCornersMask_) == DrawFlags_RoundCornersNone) {
-    PrimReserve(6, 4);
-    PrimRect(p_min, p_max, col);
-  } else {
-    PathRect(p_min, p_max, rounding, flags);
-    PathFillConvex(col);
-  }
-}
-
 // p_min = upper-left, p_max = lower-right
-void DrawList::AddRectFilledMultiColor(const Vec2 &p_min, const Vec2 &p_max,
-                                       U32 col_upr_left, U32 col_upr_right,
-                                       U32 col_bot_right, U32 col_bot_left) {
+inline void
+DrawList::AddRectFilledMultiColor(const Vec2 &p_min, const Vec2 &p_max,
+                                  U32 col_upr_left, U32 col_upr_right,
+                                  U32 col_bot_right, U32 col_bot_left) {
   if (((col_upr_left | col_upr_right | col_bot_right | col_bot_left) &
        GUI_COL32_A_MASK) == 0)
     return;
@@ -32353,54 +33317,8 @@ void DrawList::AddRectFilledMultiColor(const Vec2 &p_min, const Vec2 &p_max,
   PrimWriteVtx(Vec2(p_min.x, p_max.y), uv, col_bot_left);
 }
 
-void DrawList::AddQuad(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                       const Vec2 &p4, U32 col, float thickness) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  PathLineTo(p1);
-  PathLineTo(p2);
-  PathLineTo(p3);
-  PathLineTo(p4);
-  PathStroke(col, DrawFlags_Closed, thickness);
-}
-
-void DrawList::AddQuadFilled(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                             const Vec2 &p4, U32 col) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  PathLineTo(p1);
-  PathLineTo(p2);
-  PathLineTo(p3);
-  PathLineTo(p4);
-  PathFillConvex(col);
-}
-
-void DrawList::AddTriangle(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                           U32 col, float thickness) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  PathLineTo(p1);
-  PathLineTo(p2);
-  PathLineTo(p3);
-  PathStroke(col, DrawFlags_Closed, thickness);
-}
-
-void DrawList::AddTriangleFilled(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                                 U32 col) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  PathLineTo(p1);
-  PathLineTo(p2);
-  PathLineTo(p3);
-  PathFillConvex(col);
-}
-
-void DrawList::AddCircle(const Vec2 &center, float radius, U32 col,
-                         int num_segments, float thickness) {
+inline void DrawList::AddCircle(const Vec2 &center, float radius, U32 col,
+                                int num_segments, float thickness) {
   if ((col & GUI_COL32_A_MASK) == 0 || radius < 0.5f)
     return;
 
@@ -32424,8 +33342,8 @@ void DrawList::AddCircle(const Vec2 &center, float radius, U32 col,
   PathStroke(col, DrawFlags_Closed, thickness);
 }
 
-void DrawList::AddCircleFilled(const Vec2 &center, float radius, U32 col,
-                               int num_segments) {
+inline void DrawList::AddCircleFilled(const Vec2 &center, float radius, U32 col,
+                                      int num_segments) {
   if ((col & GUI_COL32_A_MASK) == 0 || radius < 0.5f)
     return;
 
@@ -32449,8 +33367,8 @@ void DrawList::AddCircleFilled(const Vec2 &center, float radius, U32 col,
 }
 
 // Guaranteed to honor 'num_segments'
-void DrawList::AddNgon(const Vec2 &center, float radius, U32 col,
-                       int num_segments, float thickness) {
+inline void DrawList::AddNgon(const Vec2 &center, float radius, U32 col,
+                              int num_segments, float thickness) {
   if ((col & GUI_COL32_A_MASK) == 0 || num_segments <= 2)
     return;
 
@@ -32463,8 +33381,8 @@ void DrawList::AddNgon(const Vec2 &center, float radius, U32 col,
 }
 
 // Guaranteed to honor 'num_segments'
-void DrawList::AddNgonFilled(const Vec2 &center, float radius, U32 col,
-                             int num_segments) {
+inline void DrawList::AddNgonFilled(const Vec2 &center, float radius, U32 col,
+                                    int num_segments) {
   if ((col & GUI_COL32_A_MASK) == 0 || num_segments <= 2)
     return;
 
@@ -32477,9 +33395,9 @@ void DrawList::AddNgonFilled(const Vec2 &center, float radius, U32 col,
 }
 
 // Ellipse
-void DrawList::AddEllipse(const Vec2 &center, float radius_x, float radius_y,
-                          U32 col, float rot, int num_segments,
-                          float thickness) {
+inline void DrawList::AddEllipse(const Vec2 &center, float radius_x,
+                                 float radius_y, U32 col, float rot,
+                                 int num_segments, float thickness) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -32497,9 +33415,9 @@ void DrawList::AddEllipse(const Vec2 &center, float radius_x, float radius_y,
   PathStroke(col, true, thickness);
 }
 
-void DrawList::AddEllipseFilled(const Vec2 &center, float radius_x,
-                                float radius_y, U32 col, float rot,
-                                int num_segments) {
+inline void DrawList::AddEllipseFilled(const Vec2 &center, float radius_x,
+                                       float radius_y, U32 col, float rot,
+                                       int num_segments) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -32518,32 +33436,13 @@ void DrawList::AddEllipseFilled(const Vec2 &center, float radius_x,
 }
 
 // Cubic Bezier takes 4 controls points
-void DrawList::AddBezierCubic(const Vec2 &p1, const Vec2 &p2, const Vec2 &p3,
-                              const Vec2 &p4, U32 col, float thickness,
-                              int num_segments) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  PathLineTo(p1);
-  PathBezierCubicCurveTo(p2, p3, p4, num_segments);
-  PathStroke(col, 0, thickness);
-}
 
 // Quadratic Bezier takes 3 controls points
-void DrawList::AddBezierQuadratic(const Vec2 &p1, const Vec2 &p2,
-                                  const Vec2 &p3, U32 col, float thickness,
-                                  int num_segments) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
 
-  PathLineTo(p1);
-  PathBezierQuadraticCurveTo(p2, p3, num_segments);
-  PathStroke(col, 0, thickness);
-}
-
-void DrawList::AddText(const Font *font, float font_size, const Vec2 &pos,
-                       U32 col, const char *text_begin, const char *text_end,
-                       float wrap_width, const Vec4 *cpu_fine_clip_rect) {
+inline void DrawList::AddText(const Font *font, float font_size,
+                              const Vec2 &pos, U32 col, const char *text_begin,
+                              const char *text_end, float wrap_width,
+                              const Vec4 *cpu_fine_clip_rect) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -32574,50 +33473,11 @@ void DrawList::AddText(const Font *font, float font_size, const Vec2 &pos,
                    wrap_width, cpu_fine_clip_rect != NULL);
 }
 
-void DrawList::AddText(const Vec2 &pos, U32 col, const char *text_begin,
-                       const char *text_end) {
-  AddText(NULL, 0.0f, pos, col, text_begin, text_end);
-}
-
-void DrawList::AddImage(TextureID user_texture_id, const Vec2 &p_min,
-                        const Vec2 &p_max, const Vec2 &uv_min,
-                        const Vec2 &uv_max, U32 col) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  const bool push_texture_id = user_texture_id != _CmdHeader.TextureId;
-  if (push_texture_id)
-    PushTextureID(user_texture_id);
-
-  PrimReserve(6, 4);
-  PrimRectUV(p_min, p_max, uv_min, uv_max, col);
-
-  if (push_texture_id)
-    PopTextureID();
-}
-
-void DrawList::AddImageQuad(TextureID user_texture_id, const Vec2 &p1,
-                            const Vec2 &p2, const Vec2 &p3, const Vec2 &p4,
-                            const Vec2 &uv1, const Vec2 &uv2, const Vec2 &uv3,
-                            const Vec2 &uv4, U32 col) {
-  if ((col & GUI_COL32_A_MASK) == 0)
-    return;
-
-  const bool push_texture_id = user_texture_id != _CmdHeader.TextureId;
-  if (push_texture_id)
-    PushTextureID(user_texture_id);
-
-  PrimReserve(6, 4);
-  PrimQuadUV(p1, p2, p3, p4, uv1, uv2, uv3, uv4, col);
-
-  if (push_texture_id)
-    PopTextureID();
-}
-
-void DrawList::AddImageRounded(TextureID user_texture_id, const Vec2 &p_min,
-                               const Vec2 &p_max, const Vec2 &uv_min,
-                               const Vec2 &uv_max, U32 col, float rounding,
-                               DrawFlags flags) {
+inline void DrawList::AddImageRounded(TextureID user_texture_id,
+                                      const Vec2 &p_min, const Vec2 &p_max,
+                                      const Vec2 &uv_min, const Vec2 &uv_max,
+                                      U32 col, float rounding,
+                                      DrawFlags flags) {
   if ((col & GUI_COL32_A_MASK) == 0)
     return;
 
@@ -32650,7 +33510,7 @@ void DrawList::AddImageRounded(TextureID user_texture_id, const Vec2 &p_min,
 // low-level/optimal instead of just doing vector swap..
 //-----------------------------------------------------------------------------
 
-void DrawListSplitter::ClearFreeMemory() {
+inline void DrawListSplitter::ClearFreeMemory() {
   for (int i = 0; i < _Channels.Size; i++) {
     if (i == _Current)
       memset(&_Channels[i], 0,
@@ -32664,7 +33524,7 @@ void DrawListSplitter::ClearFreeMemory() {
   _Channels.clear();
 }
 
-void DrawListSplitter::Split(DrawList *draw_list, int channels_count) {
+inline void DrawListSplitter::Split(DrawList *draw_list, int channels_count) {
   GUI_UNUSED(draw_list);
   GUI_ASSERT(_Current == 0 && _Count <= 1 &&
              "Nested channel splitting is not supported. Please use separate "
@@ -32694,7 +33554,7 @@ void DrawListSplitter::Split(DrawList *draw_list, int channels_count) {
   }
 }
 
-void DrawListSplitter::Merge(DrawList *draw_list) {
+inline void DrawListSplitter::Merge(DrawList *draw_list) {
   // Note that we never use or rely on _Channels.Size because it is merely a
   // buffer that we never shrink back to 0 to keep all sub-buffers ready for
   // use.
@@ -32786,7 +33646,7 @@ void DrawListSplitter::Merge(DrawList *draw_list) {
   _Count = 1;
 }
 
-void DrawListSplitter::SetCurrentChannel(DrawList *draw_list, int idx) {
+inline void DrawListSplitter::SetCurrentChannel(DrawList *draw_list, int idx) {
   GUI_ASSERT(idx >= 0 && idx < _Count);
   if (_Current == idx)
     return;
@@ -32825,21 +33685,12 @@ void DrawListSplitter::SetCurrentChannel(DrawList *draw_list, int idx) {
 // [SECTION] DrawData
 //-----------------------------------------------------------------------------
 
-void DrawData::Clear() {
-  Valid = false;
-  CmdListsCount = TotalIdxCount = TotalVtxCount = 0;
-  CmdLists.resize(0); // The DrawList are NOT owned by DrawData but e.g. by
-                      // Context, so we don't clear them.
-  DisplayPos = DisplaySize = FramebufferScale = Vec2(0.0f, 0.0f);
-  OwnerViewport = NULL;
-}
-
 // Important: 'out_list' is generally going to be draw_data->CmdLists, but may
 // be another temporary list as long at it is expected that the result will be
 // later merged into draw_data->CmdLists[].
-void Gui::AddDrawListToDrawDataEx(DrawData *draw_data,
-                                  Vector<DrawList *> *out_list,
-                                  DrawList *draw_list) {
+inline void Gui::AddDrawListToDrawDataEx(DrawData *draw_data,
+                                         Vector<DrawList *> *out_list,
+                                         DrawList *draw_list) {
   if (draw_list->CmdBuffer.Size == 0)
     return;
   if (draw_list->CmdBuffer.Size == 1 &&
@@ -32898,7 +33749,7 @@ void Gui::AddDrawListToDrawDataEx(DrawData *draw_data,
   draw_data->TotalIdxCount += draw_list->IdxBuffer.Size;
 }
 
-void DrawData::AddDrawList(DrawList *draw_list) {
+inline void DrawData::AddDrawList(DrawList *draw_list) {
   GUI_ASSERT(CmdLists.Size == CmdListsCount);
   draw_list->_PopUnusedDrawCmd();
   Gui::AddDrawListToDrawDataEx(this, &CmdLists, draw_list);
@@ -32907,40 +33758,18 @@ void DrawData::AddDrawList(DrawList *draw_list) {
 // For backward compatibility: convert all buffers from indexed to de-indexed,
 // in case you cannot render indexed. Note: this is slow and most likely a waste
 // of resources. Always prefer indexed rendering!
-void DrawData::DeIndexAllBuffers() {
-  Vector<DrawVert> new_vtx_buffer;
-  TotalVtxCount = TotalIdxCount = 0;
-  for (int i = 0; i < CmdListsCount; i++) {
-    DrawList *cmd_list = CmdLists[i];
-    if (cmd_list->IdxBuffer.empty())
-      continue;
-    new_vtx_buffer.resize(cmd_list->IdxBuffer.Size);
-    for (int j = 0; j < cmd_list->IdxBuffer.Size; j++)
-      new_vtx_buffer[j] = cmd_list->VtxBuffer[cmd_list->IdxBuffer[j]];
-    cmd_list->VtxBuffer.swap(new_vtx_buffer);
-    cmd_list->IdxBuffer.resize(0);
-    TotalVtxCount += cmd_list->VtxBuffer.Size;
-  }
-}
 
 // Helper to scale the ClipRect field of each DrawCmd.
 // Use if your final output buffer is at a different scale than
 // draw_data->DisplaySize, or if there is a difference between your window
 // resolution and framebuffer resolution.
-void DrawData::ScaleClipRects(const Vec2 &fb_scale) {
-  for (DrawList *draw_list : CmdLists)
-    for (DrawCmd &cmd : draw_list->CmdBuffer)
-      cmd.ClipRect =
-          Vec4(cmd.ClipRect.x * fb_scale.x, cmd.ClipRect.y * fb_scale.y,
-               cmd.ClipRect.z * fb_scale.x, cmd.ClipRect.w * fb_scale.y);
-}
 
 //-----------------------------------------------------------------------------
 // [SECTION] Helpers ShadeVertsXXX functions
 //-----------------------------------------------------------------------------
 
 // Generic linear color gradient, write to RGB fields, leave A untouched.
-void Gui::ShadeVertsLinearColorGradientKeepAlpha(
+inline void Gui::ShadeVertsLinearColorGradientKeepAlpha(
     DrawList *draw_list, int vert_start_idx, int vert_end_idx, Vec2 gradient_p0,
     Vec2 gradient_p1, U32 col0, U32 col1) {
   Vec2 gradient_extent = Subtract(gradient_p1, gradient_p0);
@@ -32965,9 +33794,10 @@ void Gui::ShadeVertsLinearColorGradientKeepAlpha(
 }
 
 // Distribute UV over (a, b) rectangle
-void Gui::ShadeVertsLinearUV(DrawList *draw_list, int vert_start_idx,
-                             int vert_end_idx, const Vec2 &a, const Vec2 &b,
-                             const Vec2 &uv_a, const Vec2 &uv_b, bool clamp) {
+inline void Gui::ShadeVertsLinearUV(DrawList *draw_list, int vert_start_idx,
+                                    int vert_end_idx, const Vec2 &a,
+                                    const Vec2 &b, const Vec2 &uv_a,
+                                    const Vec2 &uv_b, bool clamp) {
   const Vec2 size = Subtract(b, a);
   const Vec2 uv_size = Subtract(uv_b, uv_a);
   const Vec2 scale = Vec2(size.x != 0.0f ? (uv_size.x / size.x) : 0.0f,
@@ -32990,10 +33820,10 @@ void Gui::ShadeVertsLinearUV(DrawList *draw_list, int vert_start_idx,
   }
 }
 
-void Gui::ShadeVertsTransformPos(DrawList *draw_list, int vert_start_idx,
-                                 int vert_end_idx, const Vec2 &pivot_in,
-                                 float cos_a, float sin_a,
-                                 const Vec2 &pivot_out) {
+inline void Gui::ShadeVertsTransformPos(DrawList *draw_list, int vert_start_idx,
+                                        int vert_end_idx, const Vec2 &pivot_in,
+                                        float cos_a, float sin_a,
+                                        const Vec2 &pivot_out) {
   DrawVert *vert_start = draw_list->VtxBuffer.Data + vert_start_idx;
   DrawVert *vert_end = draw_list->VtxBuffer.Data + vert_end_idx;
   for (DrawVert *vertex = vert_start; vertex < vert_end; ++vertex)
@@ -33005,7 +33835,7 @@ void Gui::ShadeVertsTransformPos(DrawList *draw_list, int vert_start_idx,
 // [SECTION] FontConfig
 //-----------------------------------------------------------------------------
 
-FontConfig::FontConfig() {
+inline FontConfig::FontConfig() {
   memset(this, 0, sizeof(*this));
   FontDataOwnedByAtlas = true;
   OversampleH = 2;
@@ -33097,19 +33927,19 @@ static const Vec2 FONT_ATLAS_DEFAULT_TEX_CURSOR_DATA[MouseCursor_COUNT][3] = {
     {Vec2(109, 0), Vec2(13, 15), Vec2(6, 7)},  // MouseCursor_NotAllowed
 };
 
-FontAtlas::FontAtlas() {
+inline FontAtlas::FontAtlas() {
   memset(this, 0, sizeof(*this));
   TexGlyphPadding = 1;
   PackIdMouseCursors = PackIdLines = -1;
 }
 
-FontAtlas::~FontAtlas() {
+inline FontAtlas::~FontAtlas() {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   Clear();
 }
 
-void FontAtlas::ClearInputData() {
+inline void FontAtlas::ClearInputData() {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   for (FontConfig &font_cfg : ConfigData)
@@ -33132,7 +33962,7 @@ void FontAtlas::ClearInputData() {
   // Important: we leave TexReady untouched
 }
 
-void FontAtlas::ClearTexData() {
+inline void FontAtlas::ClearTexData() {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   if (TexPixelsAlpha8)
@@ -33145,36 +33975,16 @@ void FontAtlas::ClearTexData() {
   // Important: we leave TexReady untouched
 }
 
-void FontAtlas::ClearFonts() {
+inline void FontAtlas::ClearFonts() {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   Fonts.clear_delete();
   TexReady = false;
 }
 
-void FontAtlas::Clear() {
-  ClearInputData();
-  ClearTexData();
-  ClearFonts();
-}
-
-void FontAtlas::GetTexDataAsAlpha8(unsigned char **out_pixels, int *out_width,
-                                   int *out_height, int *out_bytes_per_pixel) {
-  // Build atlas on demand
-  if (TexPixelsAlpha8 == NULL)
-    Build();
-
-  *out_pixels = TexPixelsAlpha8;
-  if (out_width)
-    *out_width = TexWidth;
-  if (out_height)
-    *out_height = TexHeight;
-  if (out_bytes_per_pixel)
-    *out_bytes_per_pixel = 1;
-}
-
-void FontAtlas::GetTexDataAsRGBA32(unsigned char **out_pixels, int *out_width,
-                                   int *out_height, int *out_bytes_per_pixel) {
+inline void FontAtlas::GetTexDataAsRGBA32(unsigned char **out_pixels,
+                                          int *out_width, int *out_height,
+                                          int *out_bytes_per_pixel) {
   // Convert to RGBA32 format on demand
   // Although it is likely to be the most commonly used format, our font
   // rendering is 1 channel / 8 bpp
@@ -33200,7 +34010,7 @@ void FontAtlas::GetTexDataAsRGBA32(unsigned char **out_pixels, int *out_width,
     *out_bytes_per_pixel = 4;
 }
 
-Font *FontAtlas::AddFont(const FontConfig *font_cfg) {
+inline Font *FontAtlas::AddFont(const FontConfig *font_cfg) {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   GUI_ASSERT(font_cfg->FontData != NULL && font_cfg->FontDataSize > 0);
@@ -33267,7 +34077,7 @@ static void Decode85(const unsigned char *src, unsigned char *dst) {
 }
 
 // Load embedded ProggyClean.ttf at size 13, disable oversampling
-Font *FontAtlas::AddFontDefault(const FontConfig *font_cfg_template) {
+inline Font *FontAtlas::AddFontDefault(const FontConfig *font_cfg_template) {
   FontConfig font_cfg = font_cfg_template ? *font_cfg_template : FontConfig();
   if (!font_cfg_template) {
     font_cfg.OversampleH = font_cfg.OversampleV = 1;
@@ -33292,9 +34102,10 @@ Font *FontAtlas::AddFontDefault(const FontConfig *font_cfg_template) {
   return font;
 }
 
-Font *FontAtlas::AddFontFromFileTTF(const char *filename, float size_pixels,
-                                    const FontConfig *font_cfg_template,
-                                    const Wchar *glyph_ranges) {
+inline Font *FontAtlas::AddFontFromFileTTF(const char *filename,
+                                           float size_pixels,
+                                           const FontConfig *font_cfg_template,
+                                           const Wchar *glyph_ranges) {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   size_t data_size = 0;
@@ -33320,10 +34131,9 @@ Font *FontAtlas::AddFontFromFileTTF(const char *filename, float size_pixels,
 // NB: Transfer ownership of 'ttf_data' to FontAtlas, unless
 // font_cfg_template->FontDataOwnedByAtlas == false. Owned TTF buffer will be
 // deleted after Build().
-Font *FontAtlas::AddFontFromMemoryTTF(void *font_data, int font_data_size,
-                                      float size_pixels,
-                                      const FontConfig *font_cfg_template,
-                                      const Wchar *glyph_ranges) {
+inline Font *FontAtlas::AddFontFromMemoryTTF(
+    void *font_data, int font_data_size, float size_pixels,
+    const FontConfig *font_cfg_template, const Wchar *glyph_ranges) {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
   FontConfig font_cfg = font_cfg_template ? *font_cfg_template : FontConfig();
@@ -33341,7 +34151,7 @@ Font *FontAtlas::AddFontFromMemoryTTF(void *font_data, int font_data_size,
   return AddFont(&font_cfg);
 }
 
-Font *FontAtlas::AddFontFromMemoryCompressedTTF(
+inline Font *FontAtlas::AddFontFromMemoryCompressedTTF(
     const void *compressed_ttf_data, int compressed_ttf_size, float size_pixels,
     const FontConfig *font_cfg_template, const Wchar *glyph_ranges) {
   const unsigned int buf_decompressed_size =
@@ -33359,7 +34169,7 @@ Font *FontAtlas::AddFontFromMemoryCompressedTTF(
                               size_pixels, &font_cfg, glyph_ranges);
 }
 
-Font *FontAtlas::AddFontFromMemoryCompressedBase85TTF(
+inline Font *FontAtlas::AddFontFromMemoryCompressedBase85TTF(
     const char *compressed_ttf_data_base85, float size_pixels,
     const FontConfig *font_cfg, const Wchar *glyph_ranges) {
   int compressed_ttf_size =
@@ -33373,7 +34183,7 @@ Font *FontAtlas::AddFontFromMemoryCompressedBase85TTF(
   return font;
 }
 
-int FontAtlas::AddCustomRectRegular(int width, int height) {
+inline int FontAtlas::AddCustomRectRegular(int width, int height) {
   GUI_ASSERT(width > 0 && width <= 0xFFFF);
   GUI_ASSERT(height > 0 && height <= 0xFFFF);
   FontAtlasCustomRect r;
@@ -33383,9 +34193,9 @@ int FontAtlas::AddCustomRectRegular(int width, int height) {
   return CustomRects.Size - 1; // Return index
 }
 
-int FontAtlas::AddCustomRectFontGlyph(Font *font, Wchar id, int width,
-                                      int height, float advance_x,
-                                      const Vec2 &offset) {
+inline int FontAtlas::AddCustomRectFontGlyph(Font *font, Wchar id, int width,
+                                             int height, float advance_x,
+                                             const Vec2 &offset) {
 #ifdef GUI_USE_WCHAR32
   GUI_ASSERT(id <= GUI_UNICODE_CODEPOINT_MAX);
 #endif
@@ -33403,8 +34213,9 @@ int FontAtlas::AddCustomRectFontGlyph(Font *font, Wchar id, int width,
   return CustomRects.Size - 1; // Return index
 }
 
-void FontAtlas::CalcCustomRectUV(const FontAtlasCustomRect *rect,
-                                 Vec2 *out_uv_min, Vec2 *out_uv_max) const {
+inline void FontAtlas::CalcCustomRectUV(const FontAtlasCustomRect *rect,
+                                        Vec2 *out_uv_min,
+                                        Vec2 *out_uv_max) const {
   GUI_ASSERT(TexWidth > 0 &&
              TexHeight > 0);    // Font atlas needs to be built before we can
                                 // calculate UV coordinates
@@ -33415,9 +34226,10 @@ void FontAtlas::CalcCustomRectUV(const FontAtlasCustomRect *rect,
                      (float)(rect->Y + rect->Height) * TexUvScale.y);
 }
 
-bool FontAtlas::GetMouseCursorTexData(MouseCursor cursor_type, Vec2 *out_offset,
-                                      Vec2 *out_size, Vec2 out_uv_border[2],
-                                      Vec2 out_uv_fill[2]) {
+inline bool FontAtlas::GetMouseCursorTexData(MouseCursor cursor_type,
+                                             Vec2 *out_offset, Vec2 *out_size,
+                                             Vec2 out_uv_border[2],
+                                             Vec2 out_uv_fill[2]) {
   if (cursor_type <= MouseCursor_None || cursor_type >= MouseCursor_COUNT)
     return false;
   if (Flags & FontAtlasFlags_NoMouseCursors)
@@ -33438,7 +34250,7 @@ bool FontAtlas::GetMouseCursorTexData(MouseCursor cursor_type, Vec2 *out_offset,
   return true;
 }
 
-bool FontAtlas::Build() {
+inline bool FontAtlas::Build() {
   GUI_ASSERT(!Locked && "Cannot modify a locked FontAtlas between NewFrame() "
                         "and EndFrame/Render()!");
 
@@ -33467,24 +34279,6 @@ bool FontAtlas::Build() {
 
   // Build
   return builder_io->FontBuilder_Build(this);
-}
-
-void FontAtlasBuildMultiplyCalcLookupTable(unsigned char out_table[256],
-                                           float in_brighten_factor) {
-  for (unsigned int i = 0; i < 256; i++) {
-    unsigned int value = (unsigned int)(i * in_brighten_factor);
-    out_table[i] = value > 255 ? 255 : (value & 0xFF);
-  }
-}
-
-void FontAtlasBuildMultiplyRectAlpha8(const unsigned char table[256],
-                                      unsigned char *pixels, int x, int y,
-                                      int w, int h, int stride) {
-  GUI_ASSERT_PARANOID(w <= stride);
-  unsigned char *data = pixels + x + y * stride;
-  for (int j = h; j > 0; j--, data += stride - w)
-    for (int i = w; i > 0; i--, data++)
-      *data = table[*data];
 }
 
 #ifdef GUI_ENABLE_STB_TRUETYPE
@@ -33839,7 +34633,7 @@ static bool FontAtlasBuildWithStbTruetype(FontAtlas *atlas) {
   return true;
 }
 
-const FontBuilderIO *FontAtlasGetBuilderForStbTruetype() {
+inline const FontBuilderIO *FontAtlasGetBuilderForStbTruetype() {
   static FontBuilderIO io;
   io.FontBuilder_Build = FontAtlasBuildWithStbTruetype;
   return &io;
@@ -33847,20 +34641,9 @@ const FontBuilderIO *FontAtlasGetBuilderForStbTruetype() {
 
 #endif // GUI_ENABLE_STB_TRUETYPE
 
-void FontAtlasUpdateConfigDataPointers(FontAtlas *atlas) {
-  for (FontConfig &font_cfg : atlas->ConfigData) {
-    Font *font = font_cfg.DstFont;
-    if (!font_cfg.MergeMode) {
-      font->ConfigData = &font_cfg;
-      font->ConfigDataCount = 0;
-    }
-    font->ConfigDataCount++;
-  }
-}
-
-void FontAtlasBuildSetupFont(FontAtlas *atlas, Font *font,
-                             FontConfig *font_config, float ascent,
-                             float descent) {
+inline void FontAtlasBuildSetupFont(FontAtlas *atlas, Font *font,
+                                    FontConfig *font_config, float ascent,
+                                    float descent) {
   if (!font_config->MergeMode) {
     font->ClearOutputData();
     font->FontSize = font_config->SizePixels;
@@ -33871,8 +34654,8 @@ void FontAtlasBuildSetupFont(FontAtlas *atlas, Font *font,
   }
 }
 
-void FontAtlasBuildPackCustomRects(FontAtlas *atlas,
-                                   void *stbrp_context_opaque) {
+inline void FontAtlasBuildPackCustomRects(FontAtlas *atlas,
+                                          void *stbrp_context_opaque) {
   stbrp_context *pack_context = (stbrp_context *)stbrp_context_opaque;
   GUI_ASSERT(pack_context != NULL);
 
@@ -33906,7 +34689,7 @@ void FontAtlasBuildPackCustomRects(FontAtlas *atlas,
     }
 }
 
-void FontAtlasBuildRender8bppRectFromString(
+inline void FontAtlasBuildRender8bppRectFromString(
     FontAtlas *atlas, int x, int y, int w, int h, const char *in_str,
     char in_marker_char, unsigned char in_marker_pixel_value) {
   GUI_ASSERT(x >= 0 && x + w <= atlas->TexWidth);
@@ -33919,7 +34702,7 @@ void FontAtlasBuildRender8bppRectFromString(
           (in_str[off_x] == in_marker_char) ? in_marker_pixel_value : 0x00;
 }
 
-void FontAtlasBuildRender32bppRectFromString(
+inline void FontAtlasBuildRender32bppRectFromString(
     FontAtlas *atlas, int x, int y, int w, int h, const char *in_str,
     char in_marker_char, unsigned int in_marker_pixel_value) {
   GUI_ASSERT(x >= 0 && x + w <= atlas->TexWidth);
@@ -34043,7 +34826,7 @@ static void FontAtlasBuildRenderLinesTexData(FontAtlas *atlas) {
 
 // Note: this is called / shared by both the stb_truetype and the FreeType
 // builder
-void FontAtlasBuildInit(FontAtlas *atlas) {
+inline void FontAtlasBuildInit(FontAtlas *atlas) {
   // Round font size
   // - We started rounding in 1.90 WIP (18991) as our layout system currently
   // doesn't support non-rounded font size well yet.
@@ -34075,7 +34858,7 @@ void FontAtlasBuildInit(FontAtlas *atlas) {
 }
 
 // This is called/shared by both the stb_truetype and the FreeType builder.
-void FontAtlasBuildFinish(FontAtlas *atlas) {
+inline void FontAtlasBuildFinish(FontAtlas *atlas) {
   // Render into our custom data blocks
   GUI_ASSERT(atlas->TexPixelsAlpha8 != NULL || atlas->TexPixelsRGBA32 != NULL);
   FontAtlasBuildRenderDefaultTexData(atlas);
@@ -34107,48 +34890,6 @@ void FontAtlasBuildFinish(FontAtlas *atlas) {
 }
 
 // Retrieve list of range (2 int per range, values are inclusive)
-const Wchar *FontAtlas::GetGlyphRangesDefault() {
-  static const Wchar ranges[] = {
-      0x0020,
-      0x00FF, // Basic Latin + Latin Supplement
-      0,
-  };
-  return &ranges[0];
-}
-
-const Wchar *FontAtlas::GetGlyphRangesGreek() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin + Latin Supplement
-      0x0370, 0x03FF, // Greek and Coptic
-      0,
-  };
-  return &ranges[0];
-}
-
-const Wchar *FontAtlas::GetGlyphRangesKorean() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin + Latin Supplement
-      0x3131, 0x3163, // Korean alphabets
-      0xAC00, 0xD7A3, // Korean characters
-      0xFFFD, 0xFFFD, // Invalid
-      0,
-  };
-  return &ranges[0];
-}
-
-const Wchar *FontAtlas::GetGlyphRangesChineseFull() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin + Latin Supplement
-      0x2000, 0x206F, // General Punctuation
-      0x3000, 0x30FF, // CJK Symbols and Punctuations, Hiragana, Katakana
-      0x31F0, 0x31FF, // Katakana Phonetic Extensions
-      0xFF00, 0xFFEF, // Half-width characters
-      0xFFFD, 0xFFFD, // Invalid
-      0x4e00, 0x9FAF, // CJK Ideograms
-      0,
-  };
-  return &ranges[0];
-}
 
 static void UnpackAccumulativeOffsetsIntoRanges(
     int base_codepoint, const short *accumulative_offsets,
@@ -34165,7 +34906,7 @@ static void UnpackAccumulativeOffsetsIntoRanges(
 // [SECTION] FontAtlas glyph ranges helpers
 //-------------------------------------------------------------------------
 
-const Wchar *FontAtlas::GetGlyphRangesChineseSimplifiedCommon() {
+inline const Wchar *FontAtlas::GetGlyphRangesChineseSimplifiedCommon() {
   // Store 2500 regularly used characters for Simplified Chinese.
   // Sourced from
   // https://zh.wiktionary.org/wiki/%E9%99%84%E5%BD%95:%E7%8E%B0%E4%BB%A3%E6%B1%89%E8%AF%AD%E5%B8%B8%E7%94%A8%E5%AD%97%E8%A1%A8
@@ -34354,7 +35095,7 @@ const Wchar *FontAtlas::GetGlyphRangesChineseSimplifiedCommon() {
   return &full_ranges[0];
 }
 
-const Wchar *FontAtlas::GetGlyphRangesJapanese() {
+inline const Wchar *FontAtlas::GetGlyphRangesJapanese() {
   // 2999 ideograms code points for Japanese
   // - 2136 Joyo (meaning "for regular use" or "for common use") Kanji code
   // points
@@ -34594,41 +35335,12 @@ const Wchar *FontAtlas::GetGlyphRangesJapanese() {
   return &full_ranges[0];
 }
 
-const Wchar *FontAtlas::GetGlyphRangesCyrillic() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin + Latin Supplement
-      0x0400, 0x052F, // Cyrillic + Cyrillic Supplement
-      0x2DE0, 0x2DFF, // Cyrillic Extended-A
-      0xA640, 0xA69F, // Cyrillic Extended-B
-      0,
-  };
-  return &ranges[0];
-}
-
-const Wchar *FontAtlas::GetGlyphRangesThai() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin
-      0x2010, 0x205E, // Punctuations
-      0x0E00, 0x0E7F, // Thai
-      0,
-  };
-  return &ranges[0];
-}
-
-const Wchar *FontAtlas::GetGlyphRangesVietnamese() {
-  static const Wchar ranges[] = {
-      0x0020, 0x00FF, // Basic Latin
-      0x0102, 0x0103, 0x0110, 0x0111, 0x0128, 0x0129, 0x0168, 0x0169,
-      0x01A0, 0x01A1, 0x01AF, 0x01B0, 0x1EA0, 0x1EF9, 0,
-  };
-  return &ranges[0];
-}
-
 //-----------------------------------------------------------------------------
 // [SECTION] FontGlyphRangesBuilder
 //-----------------------------------------------------------------------------
 
-void FontGlyphRangesBuilder::AddText(const char *text, const char *text_end) {
+inline void FontGlyphRangesBuilder::AddText(const char *text,
+                                            const char *text_end) {
   while (text_end ? (text < text_end) : *text) {
     unsigned int c = 0;
     int c_len = TextCharFromUtf8(&c, text, text_end);
@@ -34639,30 +35351,11 @@ void FontGlyphRangesBuilder::AddText(const char *text, const char *text_end) {
   }
 }
 
-void FontGlyphRangesBuilder::AddRanges(const Wchar *ranges) {
-  for (; ranges[0]; ranges += 2)
-    for (unsigned int c = ranges[0];
-         c <= ranges[1] && c <= GUI_UNICODE_CODEPOINT_MAX; c++) //-V560
-      AddChar((Wchar)c);
-}
-
-void FontGlyphRangesBuilder::BuildRanges(Vector<Wchar> *out_ranges) {
-  const int max_codepoint = GUI_UNICODE_CODEPOINT_MAX;
-  for (int n = 0; n <= max_codepoint; n++)
-    if (GetBit(n)) {
-      out_ranges->push_back((Wchar)n);
-      while (n < max_codepoint && GetBit(n + 1))
-        n++;
-      out_ranges->push_back((Wchar)n);
-    }
-  out_ranges->push_back(0);
-}
-
 //-----------------------------------------------------------------------------
 // [SECTION] Font
 //-----------------------------------------------------------------------------
 
-Font::Font() {
+inline Font::Font() {
   FontSize = 0.0f;
   FallbackAdvanceX = 0.0f;
   FallbackChar = (Wchar)-1;
@@ -34680,21 +35373,6 @@ Font::Font() {
   memset(Used4kPagesMap, 0, sizeof(Used4kPagesMap));
 }
 
-Font::~Font() { ClearOutputData(); }
-
-void Font::ClearOutputData() {
-  FontSize = 0.0f;
-  FallbackAdvanceX = 0.0f;
-  Glyphs.clear();
-  IndexAdvanceX.clear();
-  IndexLookup.clear();
-  FallbackGlyph = NULL;
-  ContainerAtlas = NULL;
-  DirtyLookupTables = true;
-  Ascent = Descent = 0.0f;
-  MetricsTotalSurface = 0;
-}
-
 static Wchar FindFirstExistingGlyph(Font *font, const Wchar *candidate_chars,
                                     int candidate_chars_count) {
   for (int n = 0; n < candidate_chars_count; n++)
@@ -34703,7 +35381,7 @@ static Wchar FindFirstExistingGlyph(Font *font, const Wchar *candidate_chars,
   return (Wchar)-1;
 }
 
-void Font::BuildLookupTable() {
+inline void Font::BuildLookupTable() {
   int max_codepoint = 0;
   for (int i = 0; i != Glyphs.Size; i++)
     max_codepoint = Max(max_codepoint, (int)Glyphs[i].Codepoint);
@@ -34791,22 +35469,8 @@ void Font::BuildLookupTable() {
 
 // API is designed this way to avoid exposing the 4K page size
 // e.g. use with IsGlyphRangeUnused(0, 255)
-bool Font::IsGlyphRangeUnused(unsigned int c_begin, unsigned int c_last) {
-  unsigned int page_begin = (c_begin / 4096);
-  unsigned int page_last = (c_last / 4096);
-  for (unsigned int page_n = page_begin; page_n <= page_last; page_n++)
-    if ((page_n >> 3) < sizeof(Used4kPagesMap))
-      if (Used4kPagesMap[page_n >> 3] & (1 << (page_n & 7)))
-        return false;
-  return true;
-}
 
-void Font::SetGlyphVisible(Wchar c, bool visible) {
-  if (FontGlyph *glyph = (FontGlyph *)(void *)FindGlyph((Wchar)c))
-    glyph->Visible = visible ? 1 : 0;
-}
-
-void Font::GrowIndex(int new_size) {
+inline void Font::GrowIndex(int new_size) {
   GUI_ASSERT(IndexAdvanceX.Size == IndexLookup.Size);
   if (new_size <= IndexLookup.Size)
     return;
@@ -34820,9 +35484,9 @@ void Font::GrowIndex(int new_size) {
 // (0.0..1.0 on each texture axis). 'cfg' is not necessarily ==
 // 'this->ConfigData' because multiple source fonts+configs can be used to build
 // one target font.
-void Font::AddGlyph(const FontConfig *cfg, Wchar codepoint, float x0, float y0,
-                    float x1, float y1, float u0, float v0, float u1, float v1,
-                    float advance_x) {
+inline void Font::AddGlyph(const FontConfig *cfg, Wchar codepoint, float x0,
+                           float y0, float x1, float y1, float u0, float v0,
+                           float u1, float v1, float advance_x) {
   if (cfg != NULL) {
     // Clamp & recenter if needed
     const float advance_x_original = advance_x;
@@ -34868,7 +35532,7 @@ void Font::AddGlyph(const FontConfig *cfg, Wchar codepoint, float x0, float y0,
       (int)((glyph.V1 - glyph.V0) * ContainerAtlas->TexHeight + pad);
 }
 
-void Font::AddRemapChar(Wchar dst, Wchar src, bool overwrite_dst) {
+inline void Font::AddRemapChar(Wchar dst, Wchar src, bool overwrite_dst) {
   GUI_ASSERT(
       IndexLookup.Size >
       0); // Currently this can only be called AFTER the font has been built,
@@ -34887,7 +35551,7 @@ void Font::AddRemapChar(Wchar dst, Wchar src, bool overwrite_dst) {
   IndexAdvanceX[dst] = (src < index_size) ? IndexAdvanceX.Data[src] : 1.0f;
 }
 
-const FontGlyph *Font::FindGlyph(Wchar c) const {
+inline const FontGlyph *Font::FindGlyph(Wchar c) const {
   if (c >= (size_t)IndexLookup.Size)
     return FallbackGlyph;
   const Wchar i = IndexLookup.Data[c];
@@ -34896,7 +35560,7 @@ const FontGlyph *Font::FindGlyph(Wchar c) const {
   return &Glyphs.Data[i];
 }
 
-const FontGlyph *Font::FindGlyphNoFallback(Wchar c) const {
+inline const FontGlyph *Font::FindGlyphNoFallback(Wchar c) const {
   if (c >= (size_t)IndexLookup.Size)
     return NULL;
   const Wchar i = IndexLookup.Data[c];
@@ -34921,9 +35585,9 @@ static inline const char *CalcWordWrapNextLineStartA(const char *text,
 // FIXME: Much possible improvements (don't cut things like "word !", "word!!!"
 // but cut within "word,,,,", more sensible support for punctuations, support
 // for Unicode punctuations, etc.)
-const char *Font::CalcWordWrapPositionA(float scale, const char *text,
-                                        const char *text_end,
-                                        float wrap_width) const {
+inline const char *Font::CalcWordWrapPositionA(float scale, const char *text,
+                                               const char *text_end,
+                                               float wrap_width) const {
   // For references, possible wrap point marked with ^
   //  "aaa bbb, ccc,ddd. eee   fff. ggg!"
   //      ^    ^    ^   ^   ^__    ^    ^
@@ -35015,9 +35679,9 @@ const char *Font::CalcWordWrapPositionA(float scale, const char *text,
   return s;
 }
 
-Vec2 Font::CalcTextSizeA(float size, float max_width, float wrap_width,
-                         const char *text_begin, const char *text_end,
-                         const char **remaining) const {
+inline Vec2 Font::CalcTextSizeA(float size, float max_width, float wrap_width,
+                                const char *text_begin, const char *text_end,
+                                const char **remaining) const {
   if (!text_end)
     text_end =
         text_begin + strlen(text_begin); // FIXME-OPT: Need to avoid this.
@@ -35098,8 +35762,8 @@ Vec2 Font::CalcTextSizeA(float size, float max_width, float wrap_width,
 
 // Note: as with every DrawList drawing function, this expects that the font
 // atlas texture is bound.
-void Font::RenderChar(DrawList *draw_list, float size, const Vec2 &pos, U32 col,
-                      Wchar c) const {
+inline void Font::RenderChar(DrawList *draw_list, float size, const Vec2 &pos,
+                             U32 col, Wchar c) const {
   const FontGlyph *glyph = FindGlyph(c);
   if (!glyph || !glyph->Visible)
     return;
@@ -35117,10 +35781,10 @@ void Font::RenderChar(DrawList *draw_list, float size, const Vec2 &pos, U32 col,
 
 // Note: as with every DrawList drawing function, this expects that the font
 // atlas texture is bound.
-void Font::RenderText(DrawList *draw_list, float size, const Vec2 &pos, U32 col,
-                      const Vec4 &clip_rect, const char *text_begin,
-                      const char *text_end, float wrap_width,
-                      bool cpu_fine_clip) const {
+inline void Font::RenderText(DrawList *draw_list, float size, const Vec2 &pos,
+                             U32 col, const Vec4 &clip_rect,
+                             const char *text_begin, const char *text_end,
+                             float wrap_width, bool cpu_fine_clip) const {
   if (!text_end)
     text_end =
         text_begin +
@@ -35341,8 +36005,8 @@ void Font::RenderText(DrawList *draw_list, float size, const Vec2 &pos, U32 col,
 
 // Render an arrow aimed to be aligned with text (p_min is a position in the
 // same space text would be positioned). To e.g. denote expanded/collapsed state
-void Gui::RenderArrow(DrawList *draw_list, Vec2 pos, U32 col, Dir dir,
-                      float scale) {
+inline void Gui::RenderArrow(DrawList *draw_list, Vec2 pos, U32 col, Dir dir,
+                             float scale) {
   const float h = draw_list->_Data->FontSize * 1.00f;
   float r = h * 0.40f * scale;
   Vec2 center = Add(pos, Vec2(h * 0.50f, h * 0.50f * scale));
@@ -35374,11 +36038,6 @@ void Gui::RenderArrow(DrawList *draw_list, Vec2 pos, U32 col, Dir dir,
                                col);
 }
 
-void Gui::RenderBullet(DrawList *draw_list, Vec2 pos, U32 col) {
-  // FIXME-OPT: This should be baked in font.
-  draw_list->AddCircleFilled(pos, draw_list->_Data->FontSize * 0.20f, col, 8);
-}
-
 inline void Gui::RenderCheckMark(DrawList *draw_list, Vec2 pos, U32 col,
                                  float sz) {
   float thickness = Max(sz / 5.0f, 1.0f);
@@ -35396,34 +36055,6 @@ inline void Gui::RenderCheckMark(DrawList *draw_list, Vec2 pos, U32 col,
 
 // Render an arrow. 'pos' is position of the arrow tip. half_sz.x is length from
 // base to tip. half_sz.y is length on each side.
-void Gui::RenderArrowPointingAt(DrawList *draw_list, Vec2 pos, Vec2 half_sz,
-                                Dir direction, U32 col) {
-  switch (direction) {
-  case Dir_Left:
-    draw_list->AddTriangleFilled(Vec2(pos.x + half_sz.x, pos.y - half_sz.y),
-                                 Vec2(pos.x + half_sz.x, pos.y + half_sz.y),
-                                 pos, col);
-    return;
-  case Dir_Right:
-    draw_list->AddTriangleFilled(Vec2(pos.x - half_sz.x, pos.y + half_sz.y),
-                                 Vec2(pos.x - half_sz.x, pos.y - half_sz.y),
-                                 pos, col);
-    return;
-  case Dir_Up:
-    draw_list->AddTriangleFilled(Vec2(pos.x + half_sz.x, pos.y + half_sz.y),
-                                 Vec2(pos.x - half_sz.x, pos.y + half_sz.y),
-                                 pos, col);
-    return;
-  case Dir_Down:
-    draw_list->AddTriangleFilled(Vec2(pos.x - half_sz.x, pos.y - half_sz.y),
-                                 Vec2(pos.x + half_sz.x, pos.y - half_sz.y),
-                                 pos, col);
-    return;
-  case Dir_None:
-  case Dir_COUNT:
-    break; // Fix warnings
-  }
-}
 
 static inline float Acos01(float x) {
   if (x <= 0.0f)
@@ -35437,9 +36068,9 @@ static inline float Acos01(float x) {
 }
 
 // FIXME: Cleanup and move code to DrawList.
-void Gui::RenderRectFilledRangeH(DrawList *draw_list, const Rect &rect, U32 col,
-                                 float x_start_norm, float x_end_norm,
-                                 float rounding) {
+inline void Gui::RenderRectFilledRangeH(DrawList *draw_list, const Rect &rect,
+                                        U32 col, float x_start_norm,
+                                        float x_end_norm, float rounding) {
   if (x_end_norm == x_start_norm)
     return;
   if (x_start_norm > x_end_norm)
@@ -35497,57 +36128,6 @@ void Gui::RenderRectFilledRangeH(DrawList *draw_list, const Rect &rect, U32 col,
   draw_list->PathFillConvex(col);
 }
 
-void Gui::RenderRectFilledWithHole(DrawList *draw_list, const Rect &outer,
-                                   const Rect &inner, U32 col, float rounding) {
-  const bool fill_L = (inner.Min.x > outer.Min.x);
-  const bool fill_R = (inner.Max.x < outer.Max.x);
-  const bool fill_U = (inner.Min.y > outer.Min.y);
-  const bool fill_D = (inner.Max.y < outer.Max.y);
-  if (fill_L)
-    draw_list->AddRectFilled(
-        Vec2(outer.Min.x, inner.Min.y), Vec2(inner.Min.x, inner.Max.y), col,
-        rounding,
-        DrawFlags_RoundCornersNone |
-            (fill_U ? 0 : DrawFlags_RoundCornersTopLeft) |
-            (fill_D ? 0 : DrawFlags_RoundCornersBottomLeft));
-  if (fill_R)
-    draw_list->AddRectFilled(
-        Vec2(inner.Max.x, inner.Min.y), Vec2(outer.Max.x, inner.Max.y), col,
-        rounding,
-        DrawFlags_RoundCornersNone |
-            (fill_U ? 0 : DrawFlags_RoundCornersTopRight) |
-            (fill_D ? 0 : DrawFlags_RoundCornersBottomRight));
-  if (fill_U)
-    draw_list->AddRectFilled(Vec2(inner.Min.x, outer.Min.y),
-                             Vec2(inner.Max.x, inner.Min.y), col, rounding,
-                             DrawFlags_RoundCornersNone |
-                                 (fill_L ? 0 : DrawFlags_RoundCornersTopLeft) |
-                                 (fill_R ? 0 : DrawFlags_RoundCornersTopRight));
-  if (fill_D)
-    draw_list->AddRectFilled(
-        Vec2(inner.Min.x, inner.Max.y), Vec2(inner.Max.x, outer.Max.y), col,
-        rounding,
-        DrawFlags_RoundCornersNone |
-            (fill_L ? 0 : DrawFlags_RoundCornersBottomLeft) |
-            (fill_R ? 0 : DrawFlags_RoundCornersBottomRight));
-  if (fill_L && fill_U)
-    draw_list->AddRectFilled(Vec2(outer.Min.x, outer.Min.y),
-                             Vec2(inner.Min.x, inner.Min.y), col, rounding,
-                             DrawFlags_RoundCornersTopLeft);
-  if (fill_R && fill_U)
-    draw_list->AddRectFilled(Vec2(inner.Max.x, outer.Min.y),
-                             Vec2(outer.Max.x, inner.Min.y), col, rounding,
-                             DrawFlags_RoundCornersTopRight);
-  if (fill_L && fill_D)
-    draw_list->AddRectFilled(Vec2(outer.Min.x, inner.Max.y),
-                             Vec2(inner.Min.x, outer.Max.y), col, rounding,
-                             DrawFlags_RoundCornersBottomLeft);
-  if (fill_R && fill_D)
-    draw_list->AddRectFilled(Vec2(inner.Max.x, inner.Max.y),
-                             Vec2(outer.Max.x, outer.Max.y), col, rounding,
-                             DrawFlags_RoundCornersBottomRight);
-}
-
 // Helper for ColorPicker4()
 // NB: This is rather brittle and will show artifact when rounding this enabled
 // if rounded corners overlap multiple cells. Caller currently responsible for
@@ -35557,57 +36137,6 @@ void Gui::RenderRectFilledWithHole(DrawList *draw_list, const Rect &outer,
 // grid sizes and offsets, and eventually gave up... probably more reasonable to
 // disable rounding altogether.
 // FIXME: uses Gui::GetColorU32
-void Gui::RenderColorRectWithAlphaCheckerboard(DrawList *draw_list, Vec2 p_min,
-                                               Vec2 p_max, U32 col,
-                                               float grid_step, Vec2 grid_off,
-                                               float rounding,
-                                               DrawFlags flags) {
-  if ((flags & DrawFlags_RoundCornersMask_) == 0)
-    flags = DrawFlags_RoundCornersDefault_;
-  if (((col & GUI_COL32_A_MASK) >> GUI_COL32_A_SHIFT) < 0xFF) {
-    U32 col_bg1 =
-        GetColorU32(AlphaBlendColors(GUI_COL32(204, 204, 204, 255), col));
-    U32 col_bg2 =
-        GetColorU32(AlphaBlendColors(GUI_COL32(128, 128, 128, 255), col));
-    draw_list->AddRectFilled(p_min, p_max, col_bg1, rounding, flags);
-
-    int yi = 0;
-    for (float y = p_min.y + grid_off.y; y < p_max.y; y += grid_step, yi++) {
-      float y1 = Clamp(y, p_min.y, p_max.y), y2 = Min(y + grid_step, p_max.y);
-      if (y2 <= y1)
-        continue;
-      for (float x = p_min.x + grid_off.x + (yi & 1) * grid_step; x < p_max.x;
-           x += grid_step * 2.0f) {
-        float x1 = Clamp(x, p_min.x, p_max.x), x2 = Min(x + grid_step, p_max.x);
-        if (x2 <= x1)
-          continue;
-        DrawFlags cell_flags = DrawFlags_RoundCornersNone;
-        if (y1 <= p_min.y) {
-          if (x1 <= p_min.x)
-            cell_flags |= DrawFlags_RoundCornersTopLeft;
-          if (x2 >= p_max.x)
-            cell_flags |= DrawFlags_RoundCornersTopRight;
-        }
-        if (y2 >= p_max.y) {
-          if (x1 <= p_min.x)
-            cell_flags |= DrawFlags_RoundCornersBottomLeft;
-          if (x2 >= p_max.x)
-            cell_flags |= DrawFlags_RoundCornersBottomRight;
-        }
-
-        // Combine flags
-        cell_flags = (flags == DrawFlags_RoundCornersNone ||
-                      cell_flags == DrawFlags_RoundCornersNone)
-                         ? DrawFlags_RoundCornersNone
-                         : (cell_flags & flags);
-        draw_list->AddRectFilled(Vec2(x1, y1), Vec2(x2, y2), col_bg2, rounding,
-                                 cell_flags);
-      }
-    }
-  } else {
-    draw_list->AddRectFilled(p_min, p_max, col, rounding, flags);
-  }
-}
 
 //-----------------------------------------------------------------------------
 // [SECTION] Decompression code
@@ -36195,7 +36724,8 @@ static Vec2 InputTextCalcTextSizeW(Context *ctx, const Wchar *text_begin,
 // - BulletTextV()
 //-------------------------------------------------------------------------
 
-void Gui::TextEx(const char *text, const char *text_end, TextFlags flags) {
+inline void Gui::TextEx(const char *text, const char *text_end,
+                        TextFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -36306,18 +36836,18 @@ void Gui::TextEx(const char *text, const char *text_end, TextFlags flags) {
   }
 }
 
-void Gui::TextUnformatted(const char *text, const char *text_end) {
+inline void Gui::TextUnformatted(const char *text, const char *text_end) {
   TextEx(text, text_end, TextFlags_NoWidthForLargeClippedText);
 }
 
-void Gui::Text(const char *fmt, ...) {
+inline void Gui::Text(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   TextV(fmt, args);
   va_end(args);
 }
 
-void Gui::TextV(const char *fmt, va_list args) {
+inline void Gui::TextV(const char *fmt, va_list args) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -36327,41 +36857,41 @@ void Gui::TextV(const char *fmt, va_list args) {
   TextEx(text, text_end, TextFlags_NoWidthForLargeClippedText);
 }
 
-void Gui::TextColored(const Vec4 &col, const char *fmt, ...) {
+inline void Gui::TextColored(const Vec4 &col, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   TextColoredV(col, fmt, args);
   va_end(args);
 }
 
-void Gui::TextColoredV(const Vec4 &col, const char *fmt, va_list args) {
+inline void Gui::TextColoredV(const Vec4 &col, const char *fmt, va_list args) {
   PushStyleColor(Col_Text, col);
   TextV(fmt, args);
   PopStyleColor();
 }
 
-void Gui::TextDisabled(const char *fmt, ...) {
+inline void Gui::TextDisabled(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   TextDisabledV(fmt, args);
   va_end(args);
 }
 
-void Gui::TextDisabledV(const char *fmt, va_list args) {
+inline void Gui::TextDisabledV(const char *fmt, va_list args) {
   Context &g = *GGui;
   PushStyleColor(Col_Text, g.Style.Colors[Col_TextDisabled]);
   TextV(fmt, args);
   PopStyleColor();
 }
 
-void Gui::TextWrapped(const char *fmt, ...) {
+inline void Gui::TextWrapped(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   TextWrappedV(fmt, args);
   va_end(args);
 }
 
-void Gui::TextWrappedV(const char *fmt, va_list args) {
+inline void Gui::TextWrappedV(const char *fmt, va_list args) {
   Context &g = *GGui;
   const bool need_backup =
       (g.CurrentWindow->DC.TextWrapPos <
@@ -36373,7 +36903,7 @@ void Gui::TextWrappedV(const char *fmt, va_list args) {
     PopTextWrapPos();
 }
 
-void Gui::LabelText(const char *label, const char *fmt, ...) {
+inline void Gui::LabelText(const char *label, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   LabelTextV(label, fmt, args);
@@ -36381,7 +36911,7 @@ void Gui::LabelText(const char *label, const char *fmt, ...) {
 }
 
 // Add a label+text combo aligned to other label+value widgets
-void Gui::LabelTextV(const char *label, const char *fmt, va_list args) {
+inline void Gui::LabelTextV(const char *label, const char *fmt, va_list args) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -36418,7 +36948,7 @@ void Gui::LabelTextV(const char *label, const char *fmt, va_list args) {
                label);
 }
 
-void Gui::BulletText(const char *fmt, ...) {
+inline void Gui::BulletText(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   BulletTextV(fmt, args);
@@ -36426,7 +36956,7 @@ void Gui::BulletText(const char *fmt, ...) {
 }
 
 // Text with a little bullet aligned to the typical tree node.
-void Gui::BulletTextV(const char *fmt, va_list args) {
+inline void Gui::BulletTextV(const char *fmt, va_list args) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -36554,8 +37084,8 @@ void Gui::BulletTextV(const char *fmt, va_list args) {
 //   N + RepeatDelay + RepeatRate*N   true                     true - true
 //-------------------------------------------------------------------------------------------------------------------------------------------------
 
-bool Gui::ButtonBehavior(const Rect &bb, ID id, bool *out_hovered,
-                         bool *out_held, ButtonFlags flags) {
+inline bool Gui::ButtonBehavior(const Rect &bb, ID id, bool *out_hovered,
+                                bool *out_held, ButtonFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
 
@@ -36787,7 +37317,8 @@ bool Gui::ButtonBehavior(const Rect &bb, ID id, bool *out_hovered,
   return pressed;
 }
 
-bool Gui::ButtonEx(const char *label, const Vec2 &size_arg, ButtonFlags flags) {
+inline bool Gui::ButtonEx(const char *label, const Vec2 &size_arg,
+                          ButtonFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -36839,12 +37370,12 @@ bool Gui::ButtonEx(const char *label, const Vec2 &size_arg, ButtonFlags flags) {
   return pressed;
 }
 
-bool Gui::Button(const char *label, const Vec2 &size_arg) {
+inline bool Gui::Button(const char *label, const Vec2 &size_arg) {
   return ButtonEx(label, size_arg, ButtonFlags_None);
 }
 
 // Small buttons fits within text without additional vertical spacing.
-bool Gui::SmallButton(const char *label) {
+inline bool Gui::SmallButton(const char *label) {
   Context &g = *GGui;
   float backup_padding_y = g.Style.FramePadding.y;
   g.Style.FramePadding.y = 0.0f;
@@ -36856,8 +37387,8 @@ bool Gui::SmallButton(const char *label) {
 // Tip: use Gui::PushID()/PopID() to push indices or pointers in the ID stack.
 // Then you can keep 'str_id' empty or the same for all your buttons (instead of
 // creating a string based on a non-string id)
-bool Gui::InvisibleButton(const char *str_id, const Vec2 &size_arg,
-                          ButtonFlags flags) {
+inline bool Gui::InvisibleButton(const char *str_id, const Vec2 &size_arg,
+                                 ButtonFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -36881,8 +37412,8 @@ bool Gui::InvisibleButton(const char *str_id, const Vec2 &size_arg,
   return pressed;
 }
 
-bool Gui::ArrowButtonEx(const char *str_id, Dir dir, Vec2 size,
-                        ButtonFlags flags) {
+inline bool Gui::ArrowButtonEx(const char *str_id, Dir dir, Vec2 size,
+                               ButtonFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -36914,13 +37445,13 @@ bool Gui::ArrowButtonEx(const char *str_id, Dir dir, Vec2 size,
   return pressed;
 }
 
-bool Gui::ArrowButton(const char *str_id, Dir dir) {
+inline bool Gui::ArrowButton(const char *str_id, Dir dir) {
   float sz = GetFrameHeight();
   return ArrowButtonEx(str_id, dir, Vec2(sz, sz), ButtonFlags_None);
 }
 
 // Button to close a window
-bool Gui::CloseButton(ID id, const Vec2 &pos) {
+inline bool Gui::CloseButton(ID id, const Vec2 &pos) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -36968,7 +37499,7 @@ bool Gui::CloseButton(ID id, const Vec2 &pos) {
   return pressed;
 }
 
-bool Gui::CollapseButton(ID id, const Vec2 &pos) {
+inline bool Gui::CollapseButton(ID id, const Vec2 &pos) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -36998,13 +37529,9 @@ bool Gui::CollapseButton(ID id, const Vec2 &pos) {
   return pressed;
 }
 
-ID Gui::GetWindowScrollbarID(Window *window, Axis axis) {
-  return window->GetID(axis == Axis_X ? "#SCROLLX" : "#SCROLLY");
-}
-
 // Return scrollbar rectangle, must only be called for corresponding axis if
 // window->ScrollbarX/Y is set.
-Rect Gui::GetWindowScrollbarRect(Window *window, Axis axis) {
+inline Rect Gui::GetWindowScrollbarRect(Window *window, Axis axis) {
   const Rect outer_rect = window->Rect();
   const Rect inner_rect = window->InnerRect;
   const float border_size = window->WindowBorderSize;
@@ -37025,7 +37552,7 @@ Rect Gui::GetWindowScrollbarRect(Window *window, Axis axis) {
         inner_rect.Max.y - border_size);
 }
 
-void Gui::Scrollbar(Axis axis) {
+inline void Gui::Scrollbar(Axis axis) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   const ID id = GetWindowScrollbarID(window, axis);
@@ -37061,8 +37588,9 @@ void Gui::Scrollbar(Axis axis) {
 // content to change while we are holding on a scrollbar
 // - We handle both horizontal and vertical scrollbars, which makes the
 // terminology not ideal. Still, the code should probably be made simpler..
-bool Gui::ScrollbarEx(const Rect &bb_frame, ID id, Axis axis, S64 *p_scroll_v,
-                      S64 size_avail_v, S64 size_contents_v, DrawFlags flags) {
+inline bool Gui::ScrollbarEx(const Rect &bb_frame, ID id, Axis axis,
+                             S64 *p_scroll_v, S64 size_avail_v,
+                             S64 size_contents_v, DrawFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -37185,9 +37713,9 @@ bool Gui::ScrollbarEx(const Rect &bb_frame, ID id, Axis axis, S64 *p_scroll_v,
   return held;
 }
 
-void Gui::Image(TextureID user_texture_id, const Vec2 &image_size,
-                const Vec2 &uv0, const Vec2 &uv1, const Vec4 &tint_col,
-                const Vec4 &border_col) {
+inline void Gui::Image(TextureID user_texture_id, const Vec2 &image_size,
+                       const Vec2 &uv0, const Vec2 &uv1, const Vec4 &tint_col,
+                       const Vec4 &border_col) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37212,9 +37740,10 @@ void Gui::Image(TextureID user_texture_id, const Vec2 &image_size,
 // ImageButton() is flawed as 'id' is always derived from 'texture_id' (see
 // #2464 #1390) We provide this internal helper to write your own variant while
 // we figure out how to redesign the public ImageButton() API.
-bool Gui::ImageButtonEx(ID id, TextureID texture_id, const Vec2 &image_size,
-                        const Vec2 &uv0, const Vec2 &uv1, const Vec4 &bg_col,
-                        const Vec4 &tint_col, ButtonFlags flags) {
+inline bool Gui::ImageButtonEx(ID id, TextureID texture_id,
+                               const Vec2 &image_size, const Vec2 &uv0,
+                               const Vec2 &uv1, const Vec4 &bg_col,
+                               const Vec4 &tint_col, ButtonFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -37250,9 +37779,10 @@ bool Gui::ImageButtonEx(ID id, TextureID texture_id, const Vec2 &image_size,
 
 // Note that ImageButton() adds style.FramePadding*2.0f to provided size. This
 // is in order to facilitate fitting an image in a button.
-bool Gui::ImageButton(const char *str_id, TextureID user_texture_id,
-                      const Vec2 &image_size, const Vec2 &uv0, const Vec2 &uv1,
-                      const Vec4 &bg_col, const Vec4 &tint_col) {
+inline bool Gui::ImageButton(const char *str_id, TextureID user_texture_id,
+                             const Vec2 &image_size, const Vec2 &uv0,
+                             const Vec2 &uv1, const Vec4 &bg_col,
+                             const Vec4 &tint_col) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -37271,9 +37801,10 @@ bool Gui::ImageButton(const char *str_id, TextureID user_texture_id,
 // ImageButton() had an override argument. If you need to change padding with
 // new ImageButton() you can use PushStyleVar(StyleVar_FramePadding,
 // value), consistent with other Button functions.
-bool Gui::ImageButton(TextureID user_texture_id, const Vec2 &size,
-                      const Vec2 &uv0, const Vec2 &uv1, int frame_padding,
-                      const Vec4 &bg_col, const Vec4 &tint_col) {
+inline bool Gui::ImageButton(TextureID user_texture_id, const Vec2 &size,
+                             const Vec2 &uv0, const Vec2 &uv1,
+                             int frame_padding, const Vec4 &bg_col,
+                             const Vec4 &tint_col) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -37296,7 +37827,7 @@ bool Gui::ImageButton(TextureID user_texture_id, const Vec2 &size,
 }
 #endif // #ifndef GUI_DISABLE_OBSOLETE_FUNCTIONS
 
-bool Gui::Checkbox(const char *label, bool *v) {
+inline bool Gui::Checkbox(const char *label, bool *v) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -37389,24 +37920,24 @@ bool Gui::CheckboxFlagsT(const char *label, T *flags, T flags_value) {
   return pressed;
 }
 
-bool Gui::CheckboxFlags(const char *label, int *flags, int flags_value) {
+inline bool Gui::CheckboxFlags(const char *label, int *flags, int flags_value) {
   return CheckboxFlagsT(label, flags, flags_value);
 }
 
-bool Gui::CheckboxFlags(const char *label, unsigned int *flags,
-                        unsigned int flags_value) {
+inline bool Gui::CheckboxFlags(const char *label, unsigned int *flags,
+                               unsigned int flags_value) {
   return CheckboxFlagsT(label, flags, flags_value);
 }
 
-bool Gui::CheckboxFlags(const char *label, S64 *flags, S64 flags_value) {
+inline bool Gui::CheckboxFlags(const char *label, S64 *flags, S64 flags_value) {
   return CheckboxFlagsT(label, flags, flags_value);
 }
 
-bool Gui::CheckboxFlags(const char *label, U64 *flags, U64 flags_value) {
+inline bool Gui::CheckboxFlags(const char *label, U64 *flags, U64 flags_value) {
   return CheckboxFlagsT(label, flags, flags_value);
 }
 
-bool Gui::RadioButton(const char *label, bool active) {
+inline bool Gui::RadioButton(const char *label, bool active) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -37475,17 +38006,11 @@ bool Gui::RadioButton(const char *label, bool active) {
 // FIXME: This would work nicely if it was a public template, e.g. 'template<T>
 // RadioButton(const char* label, T* v, T v_button)', but I'm not sure how we
 // would expose it..
-bool Gui::RadioButton(const char *label, int *v, int v_button) {
-  const bool pressed = RadioButton(label, *v == v_button);
-  if (pressed)
-    *v = v_button;
-  return pressed;
-}
 
 // size_arg (for each axis) < 0.0f: align to end, 0.0f: auto, > 0.0f: specified
 // size
-void Gui::ProgressBar(float fraction, const Vec2 &size_arg,
-                      const char *overlay) {
+inline void Gui::ProgressBar(float fraction, const Vec2 &size_arg,
+                             const char *overlay) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37528,7 +38053,7 @@ void Gui::ProgressBar(float fraction, const Vec2 &size_arg,
         bb.Max, overlay, NULL, &overlay_size, Vec2(0.0f, 0.5f), &bb);
 }
 
-void Gui::Bullet() {
+inline void Gui::Bullet() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37568,14 +38093,14 @@ void Gui::Bullet() {
 // - ShrinkWidths() [Internal]
 //-------------------------------------------------------------------------
 
-void Gui::Spacing() {
+inline void Gui::Spacing() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
   ItemSize(Vec2(0, 0));
 }
 
-void Gui::Dummy(const Vec2 &size) {
+inline void Gui::Dummy(const Vec2 &size) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37585,7 +38110,7 @@ void Gui::Dummy(const Vec2 &size) {
   ItemAdd(bb, 0);
 }
 
-void Gui::NewLine() {
+inline void Gui::NewLine() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37603,7 +38128,7 @@ void Gui::NewLine() {
   window->DC.LayoutType = backup_layout_type;
 }
 
-void Gui::AlignTextToFramePadding() {
+inline void Gui::AlignTextToFramePadding() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37619,7 +38144,7 @@ void Gui::AlignTextToFramePadding() {
 // FIXME: Surprisingly, this seemingly trivial widget is a victim of many
 // different legacy/tricky layout issues. Note how thickness == 1.0f is handled
 // specifically as not moving CursorPos by 'thickness', but other values are.
-void Gui::SeparatorEx(SeparatorFlags flags, float thickness) {
+inline void Gui::SeparatorEx(SeparatorFlags flags, float thickness) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37692,7 +38217,7 @@ void Gui::SeparatorEx(SeparatorFlags flags, float thickness) {
   }
 }
 
-void Gui::Separator() {
+inline void Gui::Separator() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -37713,68 +38238,7 @@ void Gui::Separator() {
   SeparatorEx(flags, 1.0f);
 }
 
-void Gui::SeparatorTextEx(ID id, const char *label, const char *label_end,
-                          float extra_w) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Style &style = g.Style;
-
-  const Vec2 label_size = CalcTextSize(label, label_end, false);
-  const Vec2 pos = window->DC.CursorPos;
-  const Vec2 padding = style.SeparatorTextPadding;
-
-  const float separator_thickness = style.SeparatorTextBorderSize;
-  const Vec2 min_size(
-      label_size.x + extra_w + padding.x * 2.0f,
-      Max(label_size.y + padding.y * 2.0f, separator_thickness));
-  const Rect bb(pos, Vec2(window->WorkRect.Max.x, pos.y + min_size.y));
-  const float text_baseline_y =
-      Trunc((bb.GetHeight() - label_size.y) * style.SeparatorTextAlign.y +
-            0.99999f); // Max(padding.y, Floor((style.SeparatorTextSize -
-                       // label_size.y) * 0.5f));
-  ItemSize(min_size, text_baseline_y);
-  if (!ItemAdd(bb, id))
-    return;
-
-  const float sep1_x1 = pos.x;
-  const float sep2_x2 = bb.Max.x;
-  const float seps_y = Trunc((bb.Min.y + bb.Max.y) * 0.5f + 0.99999f);
-
-  const float label_avail_w = Max(0.0f, sep2_x2 - sep1_x1 - padding.x * 2.0f);
-  const Vec2 label_pos(pos.x + padding.x +
-                           Max(0.0f, (label_avail_w - label_size.x - extra_w) *
-                                         style.SeparatorTextAlign.x),
-                       pos.y + text_baseline_y); // FIXME-ALIGN
-
-  // This allows using SameLine() to position something in the 'extra_w'
-  window->DC.CursorPosPrevLine.x = label_pos.x + label_size.x;
-
-  const U32 separator_col = GetColorU32(Col_Separator);
-  if (label_size.x > 0.0f) {
-    const float sep1_x2 = label_pos.x - style.ItemSpacing.x;
-    const float sep2_x1 =
-        label_pos.x + label_size.x + extra_w + style.ItemSpacing.x;
-    if (sep1_x2 > sep1_x1 && separator_thickness > 0.0f)
-      window->DrawList->AddLine(Vec2(sep1_x1, seps_y), Vec2(sep1_x2, seps_y),
-                                separator_col, separator_thickness);
-    if (sep2_x2 > sep2_x1 && separator_thickness > 0.0f)
-      window->DrawList->AddLine(Vec2(sep2_x1, seps_y), Vec2(sep2_x2, seps_y),
-                                separator_col, separator_thickness);
-    if (g.LogEnabled)
-      LogSetNextTextDecoration("---", NULL);
-    RenderTextEllipsis(window->DrawList, label_pos,
-                       Vec2(bb.Max.x, bb.Max.y + style.ItemSpacing.y), bb.Max.x,
-                       bb.Max.x, label, label_end, &label_size);
-  } else {
-    if (g.LogEnabled)
-      LogText("---");
-    if (separator_thickness > 0.0f)
-      window->DrawList->AddLine(Vec2(sep1_x1, seps_y), Vec2(sep2_x2, seps_y),
-                                separator_col, separator_thickness);
-  }
-}
-
-void Gui::SeparatorText(const char *label) {
+inline void Gui::SeparatorText(const char *label) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -37794,10 +38258,10 @@ void Gui::SeparatorText(const char *label) {
 
 // Using 'hover_visibility_delay' allows us to hide the highlight and mouse
 // cursor for a short time, which can be convenient to reduce visual noise.
-bool Gui::SplitterBehavior(const Rect &bb, ID id, Axis axis, float *size1,
-                           float *size2, float min_size1, float min_size2,
-                           float hover_extend, float hover_visibility_delay,
-                           U32 bg_col) {
+inline bool Gui::SplitterBehavior(const Rect &bb, ID id, Axis axis,
+                                  float *size1, float *size2, float min_size1,
+                                  float min_size2, float hover_extend,
+                                  float hover_visibility_delay, U32 bg_col) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
 
@@ -37874,7 +38338,8 @@ static int GUI_CDECL ShrinkWidthItemComparer(const void *lhs, const void *rhs) {
 
 // Shrink excess width from a set of item, by removing width from the larger
 // items first. Set items Width to -1.0f to disable shrinking this item.
-void Gui::ShrinkWidths(ShrinkWidthItem *items, int count, float width_excess) {
+inline void Gui::ShrinkWidths(ShrinkWidthItem *items, int count,
+                              float width_excess) {
   if (count == 1) {
     if (items[0].Width >= 0.0f)
       items[0].Width = Max(items[0].Width - width_excess, 1.0f);
@@ -37937,8 +38402,8 @@ static float CalcMaxPopupHeightFromItemCount(int items_count) {
          g.Style.ItemSpacing.y + (g.Style.WindowPadding.y * 2);
 }
 
-bool Gui::BeginCombo(const char *label, const char *preview_value,
-                     ComboFlags flags) {
+inline bool Gui::BeginCombo(const char *label, const char *preview_value,
+                            ComboFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
 
@@ -38044,7 +38509,8 @@ bool Gui::BeginCombo(const char *label, const char *preview_value,
   return BeginComboPopup(popup_id, bb, flags);
 }
 
-bool Gui::BeginComboPopup(ID popup_id, const Rect &bb, ComboFlags flags) {
+inline bool Gui::BeginComboPopup(ID popup_id, const Rect &bb,
+                                 ComboFlags flags) {
   Context &g = *GGui;
   if (!IsPopupOpen(popup_id, PopupFlags_None)) {
     g.NextWindowData.ClearFlags();
@@ -38128,12 +38594,12 @@ bool Gui::BeginComboPopup(ID popup_id, const Rect &bb, ComboFlags flags) {
   return true;
 }
 
-void Gui::EndCombo() { EndPopup(); }
+inline void Gui::EndCombo() { EndPopup(); }
 
 // Call directly after the BeginCombo/EndCombo block. The preview is designed to
 // only host non-interactive elements (Experimental, see GitHub issues: #1658,
 // #4168)
-bool Gui::BeginComboPreview() {
+inline bool Gui::BeginComboPreview() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   ComboPreviewData *preview_data = &g.ComboPreviewData;
@@ -38168,36 +38634,6 @@ bool Gui::BeginComboPreview() {
   return true;
 }
 
-void Gui::EndComboPreview() {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  ComboPreviewData *preview_data = &g.ComboPreviewData;
-
-  // FIXME: Using CursorMaxPos approximation instead of correct AABB which we
-  // will store in DrawCmd in the future
-  DrawList *draw_list = window->DrawList;
-  if (window->DC.CursorMaxPos.x < preview_data->PreviewRect.Max.x &&
-      window->DC.CursorMaxPos.y < preview_data->PreviewRect.Max.y)
-    if (draw_list->CmdBuffer.Size >
-        1) // Unlikely case that the PushClipRect() didn't create a command
-    {
-      draw_list->_CmdHeader.ClipRect =
-          draw_list->CmdBuffer[draw_list->CmdBuffer.Size - 1].ClipRect =
-              draw_list->CmdBuffer[draw_list->CmdBuffer.Size - 2].ClipRect;
-      draw_list->_TryMergeDrawCmds();
-    }
-  PopClipRect();
-  window->DC.CursorPos = preview_data->BackupCursorPos;
-  window->DC.CursorMaxPos =
-      Max(window->DC.CursorMaxPos, preview_data->BackupCursorMaxPos);
-  window->DC.CursorPosPrevLine = preview_data->BackupCursorPosPrevLine;
-  window->DC.PrevLineTextBaseOffset =
-      preview_data->BackupPrevLineTextBaseOffset;
-  window->DC.LayoutType = preview_data->BackupLayout;
-  window->DC.IsSameLine = false;
-  preview_data->PreviewRect = Rect();
-}
-
 // Getter for the old Combo() API: const char*[]
 static const char *Items_ArrayGetter(void *data, int idx) {
   const char *const *items = (const char *const *)data;
@@ -38219,10 +38655,10 @@ static const char *Items_SingleStringGetter(void *data, int idx) {
 }
 
 // Old API, prefer using BeginCombo() nowadays if you can.
-bool Gui::Combo(const char *label, int *current_item,
-                const char *(*getter)(void *user_data, int idx),
-                void *user_data, int items_count,
-                int popup_max_height_in_items) {
+inline bool Gui::Combo(const char *label, int *current_item,
+                       const char *(*getter)(void *user_data, int idx),
+                       void *user_data, int items_count,
+                       int popup_max_height_in_items) {
   Context &g = *GGui;
 
   // Call the getter to obtain the preview string which is a parameter to
@@ -38271,8 +38707,9 @@ bool Gui::Combo(const char *label, int *current_item,
 }
 
 // Combo box helper allowing to pass an array of strings.
-bool Gui::Combo(const char *label, int *current_item, const char *const items[],
-                int items_count, int height_in_items) {
+inline bool Gui::Combo(const char *label, int *current_item,
+                       const char *const items[], int items_count,
+                       int height_in_items) {
   const bool value_changed = Combo(label, current_item, Items_ArrayGetter,
                                    (void *)items, items_count, height_in_items);
   return value_changed;
@@ -38280,8 +38717,9 @@ bool Gui::Combo(const char *label, int *current_item, const char *const items[],
 
 // Combo box helper allowing to pass all items in a single string literal
 // holding multiple zero-terminated items "item1\0item2\0"
-bool Gui::Combo(const char *label, int *current_item,
-                const char *items_separated_by_zeros, int height_in_items) {
+inline bool Gui::Combo(const char *label, int *current_item,
+                       const char *items_separated_by_zeros,
+                       int height_in_items) {
   int items_count = 0;
   const char *p =
       items_separated_by_zeros; // FIXME-OPT: Avoid computing this, or at least
@@ -38310,17 +38748,19 @@ static const char *GetNameFromIndexOldToNewCallback(void *user_data, int idx) {
   return s;
 }
 
-bool Gui::ListBox(const char *label, int *current_item,
-                  bool (*old_getter)(void *, int, const char **),
-                  void *user_data, int items_count, int height_in_items) {
+inline bool Gui::ListBox(const char *label, int *current_item,
+                         bool (*old_getter)(void *, int, const char **),
+                         void *user_data, int items_count,
+                         int height_in_items) {
   GetNameFromIndexOldToNewCallbackData old_to_new_data = {user_data,
                                                           old_getter};
   return ListBox(label, current_item, GetNameFromIndexOldToNewCallback,
                  &old_to_new_data, items_count, height_in_items);
 }
-bool Gui::Combo(const char *label, int *current_item,
-                bool (*old_getter)(void *, int, const char **), void *user_data,
-                int items_count, int popup_max_height_in_items) {
+inline bool Gui::Combo(const char *label, int *current_item,
+                       bool (*old_getter)(void *, int, const char **),
+                       void *user_data, int items_count,
+                       int popup_max_height_in_items) {
   GetNameFromIndexOldToNewCallbackData old_to_new_data = {user_data,
                                                           old_getter};
   return Combo(label, current_item, GetNameFromIndexOldToNewCallback,
@@ -38362,13 +38802,14 @@ static const DataTypeInfo GDataTypeInfo[] = {
 };
 GUI_STATIC_ASSERT(GUI_ARRAYSIZE(GDataTypeInfo) == DataType_COUNT);
 
-const DataTypeInfo *Gui::DataTypeGetInfo(DataType data_type) {
+inline const DataTypeInfo *Gui::DataTypeGetInfo(DataType data_type) {
   GUI_ASSERT(data_type >= 0 && data_type < DataType_COUNT);
   return &GDataTypeInfo[data_type];
 }
 
-int Gui::DataTypeFormatString(char *buf, int buf_size, DataType data_type,
-                              const void *p_data, const char *format) {
+inline int Gui::DataTypeFormatString(char *buf, int buf_size,
+                                     DataType data_type, const void *p_data,
+                                     const char *format) {
   // Signedness doesn't matter when pushing integer arguments
   if (data_type == DataType_S32 || data_type == DataType_U32)
     return FormatString(buf, buf_size, format, *(const U32 *)p_data);
@@ -38390,8 +38831,8 @@ int Gui::DataTypeFormatString(char *buf, int buf_size, DataType data_type,
   return 0;
 }
 
-void Gui::DataTypeApplyOp(DataType data_type, int op, void *output,
-                          const void *arg1, const void *arg2) {
+inline void Gui::DataTypeApplyOp(DataType data_type, int op, void *output,
+                                 const void *arg1, const void *arg2) {
   GUI_ASSERT(op == '+' || op == '-');
   switch (data_type) {
   case DataType_S8:
@@ -38499,8 +38940,8 @@ void Gui::DataTypeApplyOp(DataType data_type, int op, void *output,
 // User can input math operators (e.g. +100) to edit a numerical values.
 // NB: This is _not_ a full expression evaluator. We should probably add one and
 // replace this dumb mess..
-bool Gui::DataTypeApplyFromText(const char *buf, DataType data_type,
-                                void *p_data, const char *format) {
+inline bool Gui::DataTypeApplyFromText(const char *buf, DataType data_type,
+                                       void *p_data, const char *format) {
   while (CharIsBlankA(*buf))
     buf++;
   if (!buf[0])
@@ -38553,8 +38994,8 @@ template <typename T> static int DataTypeCompareT(const T *lhs, const T *rhs) {
   return 0;
 }
 
-int Gui::DataTypeCompare(DataType data_type, const void *arg_1,
-                         const void *arg_2) {
+inline int Gui::DataTypeCompare(DataType data_type, const void *arg_1,
+                                const void *arg_2) {
   switch (data_type) {
   case DataType_S8:
     return DataTypeCompareT<S8>((const S8 *)arg_1, (const S8 *)arg_2);
@@ -38598,8 +39039,8 @@ static bool DataTypeClampT(T *v, const T *v_min, const T *v_max) {
   return false;
 }
 
-bool Gui::DataTypeClamp(DataType data_type, void *p_data, const void *p_min,
-                        const void *p_max) {
+inline bool Gui::DataTypeClamp(DataType data_type, void *p_data,
+                               const void *p_min, const void *p_max) {
   switch (data_type) {
   case DataType_S8:
     return DataTypeClampT<S8>((S8 *)p_data, (const S8 *)p_min,
@@ -38839,9 +39280,10 @@ bool Gui::DragBehaviorT(DataType data_type, TYPE *v, float v_speed,
   return true;
 }
 
-bool Gui::DragBehavior(ID id, DataType data_type, void *p_v, float v_speed,
-                       const void *p_min, const void *p_max, const char *format,
-                       SliderFlags flags) {
+inline bool Gui::DragBehavior(ID id, DataType data_type, void *p_v,
+                              float v_speed, const void *p_min,
+                              const void *p_max, const char *format,
+                              SliderFlags flags) {
   // Read gui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this
   // assert.
   GUI_ASSERT((flags == 1 || (flags & SliderFlags_InvalidMask_) == 0) &&
@@ -38944,9 +39386,9 @@ bool Gui::DragBehavior(ID id, DataType data_type, void *p_v, float v_speed,
 // data. For a Drag widget, p_min and p_max are optional. Read code of e.g.
 // DragFloat(), DragInt() etc. or examples in 'Demo->Widgets->Data Types' to
 // understand how to use this function directly.
-bool Gui::DragScalar(const char *label, DataType data_type, void *p_data,
-                     float v_speed, const void *p_min, const void *p_max,
-                     const char *format, SliderFlags flags) {
+inline bool Gui::DragScalar(const char *label, DataType data_type, void *p_data,
+                            float v_speed, const void *p_min, const void *p_max,
+                            const char *format, SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39059,10 +39501,10 @@ bool Gui::DragScalar(const char *label, DataType data_type, void *p_data,
   return value_changed;
 }
 
-bool Gui::DragScalarN(const char *label, DataType data_type, void *p_data,
-                      int components, float v_speed, const void *p_min,
-                      const void *p_max, const char *format,
-                      SliderFlags flags) {
+inline bool Gui::DragScalarN(const char *label, DataType data_type,
+                             void *p_data, int components, float v_speed,
+                             const void *p_min, const void *p_max,
+                             const char *format, SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39095,36 +39537,40 @@ bool Gui::DragScalarN(const char *label, DataType data_type, void *p_data,
   return value_changed;
 }
 
-bool Gui::DragFloat(const char *label, float *v, float v_speed, float v_min,
-                    float v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragFloat(const char *label, float *v, float v_speed,
+                           float v_min, float v_max, const char *format,
+                           SliderFlags flags) {
   return DragScalar(label, DataType_Float, v, v_speed, &v_min, &v_max, format,
                     flags);
 }
 
-bool Gui::DragFloat2(const char *label, float v[2], float v_speed, float v_min,
-                     float v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragFloat2(const char *label, float v[2], float v_speed,
+                            float v_min, float v_max, const char *format,
+                            SliderFlags flags) {
   return DragScalarN(label, DataType_Float, v, 2, v_speed, &v_min, &v_max,
                      format, flags);
 }
 
-bool Gui::DragFloat3(const char *label, float v[3], float v_speed, float v_min,
-                     float v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragFloat3(const char *label, float v[3], float v_speed,
+                            float v_min, float v_max, const char *format,
+                            SliderFlags flags) {
   return DragScalarN(label, DataType_Float, v, 3, v_speed, &v_min, &v_max,
                      format, flags);
 }
 
-bool Gui::DragFloat4(const char *label, float v[4], float v_speed, float v_min,
-                     float v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragFloat4(const char *label, float v[4], float v_speed,
+                            float v_min, float v_max, const char *format,
+                            SliderFlags flags) {
   return DragScalarN(label, DataType_Float, v, 4, v_speed, &v_min, &v_max,
                      format, flags);
 }
 
 // NB: You likely want to specify the SliderFlags_AlwaysClamp when using
 // this.
-bool Gui::DragFloatRange2(const char *label, float *v_current_min,
-                          float *v_current_max, float v_speed, float v_min,
-                          float v_max, const char *format,
-                          const char *format_max, SliderFlags flags) {
+inline bool Gui::DragFloatRange2(const char *label, float *v_current_min,
+                                 float *v_current_max, float v_speed,
+                                 float v_min, float v_max, const char *format,
+                                 const char *format_max, SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39164,36 +39610,36 @@ bool Gui::DragFloatRange2(const char *label, float *v_current_min,
 }
 
 // NB: v_speed is float to allow adjusting the drag speed with more precision
-bool Gui::DragInt(const char *label, int *v, float v_speed, int v_min,
-                  int v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragInt(const char *label, int *v, float v_speed, int v_min,
+                         int v_max, const char *format, SliderFlags flags) {
   return DragScalar(label, DataType_S32, v, v_speed, &v_min, &v_max, format,
                     flags);
 }
 
-bool Gui::DragInt2(const char *label, int v[2], float v_speed, int v_min,
-                   int v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragInt2(const char *label, int v[2], float v_speed, int v_min,
+                          int v_max, const char *format, SliderFlags flags) {
   return DragScalarN(label, DataType_S32, v, 2, v_speed, &v_min, &v_max, format,
                      flags);
 }
 
-bool Gui::DragInt3(const char *label, int v[3], float v_speed, int v_min,
-                   int v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragInt3(const char *label, int v[3], float v_speed, int v_min,
+                          int v_max, const char *format, SliderFlags flags) {
   return DragScalarN(label, DataType_S32, v, 3, v_speed, &v_min, &v_max, format,
                      flags);
 }
 
-bool Gui::DragInt4(const char *label, int v[4], float v_speed, int v_min,
-                   int v_max, const char *format, SliderFlags flags) {
+inline bool Gui::DragInt4(const char *label, int v[4], float v_speed, int v_min,
+                          int v_max, const char *format, SliderFlags flags) {
   return DragScalarN(label, DataType_S32, v, 4, v_speed, &v_min, &v_max, format,
                      flags);
 }
 
 // NB: You likely want to specify the SliderFlags_AlwaysClamp when using
 // this.
-bool Gui::DragIntRange2(const char *label, int *v_current_min,
-                        int *v_current_max, float v_speed, int v_min, int v_max,
-                        const char *format, const char *format_max,
-                        SliderFlags flags) {
+inline bool Gui::DragIntRange2(const char *label, int *v_current_min,
+                               int *v_current_max, float v_speed, int v_min,
+                               int v_max, const char *format,
+                               const char *format_max, SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39646,10 +40092,10 @@ bool Gui::SliderBehaviorT(const Rect &bb, ID id, DataType data_type, TYPE *v,
 // fail, but an integer Slider between INT_MAX/2-10 and INT_MAX/2 will be ok. It
 // would be possible to lift that limitation with some work but it doesn't seem
 // to be worth it for sliders.
-bool Gui::SliderBehavior(const Rect &bb, ID id, DataType data_type, void *p_v,
-                         const void *p_min, const void *p_max,
-                         const char *format, SliderFlags flags,
-                         Rect *out_grab_bb) {
+inline bool Gui::SliderBehavior(const Rect &bb, ID id, DataType data_type,
+                                void *p_v, const void *p_min, const void *p_max,
+                                const char *format, SliderFlags flags,
+                                Rect *out_grab_bb) {
   // Read gui.cpp "API BREAKING CHANGES" section for 1.78 if you hit this
   // assert.
   GUI_ASSERT((flags == 1 || (flags & SliderFlags_InvalidMask_) == 0) &&
@@ -39739,9 +40185,10 @@ bool Gui::SliderBehavior(const Rect &bb, ID id, DataType data_type, void *p_v,
 // data. For a slider, they are all required. Read code of e.g. SliderFloat(),
 // SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how
 // to use this function directly.
-bool Gui::SliderScalar(const char *label, DataType data_type, void *p_data,
-                       const void *p_min, const void *p_max, const char *format,
-                       SliderFlags flags) {
+inline bool Gui::SliderScalar(const char *label, DataType data_type,
+                              void *p_data, const void *p_min,
+                              const void *p_max, const char *format,
+                              SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39848,9 +40295,10 @@ bool Gui::SliderScalar(const char *label, DataType data_type, void *p_data,
 }
 
 // Add multiple sliders on 1 line for compact edition of multiple components
-bool Gui::SliderScalarN(const char *label, DataType data_type, void *v,
-                        int components, const void *v_min, const void *v_max,
-                        const char *format, SliderFlags flags) {
+inline bool Gui::SliderScalarN(const char *label, DataType data_type, void *v,
+                               int components, const void *v_min,
+                               const void *v_max, const char *format,
+                               SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -39883,32 +40331,36 @@ bool Gui::SliderScalarN(const char *label, DataType data_type, void *v,
   return value_changed;
 }
 
-bool Gui::SliderFloat(const char *label, float *v, float v_min, float v_max,
-                      const char *format, SliderFlags flags) {
+inline bool Gui::SliderFloat(const char *label, float *v, float v_min,
+                             float v_max, const char *format,
+                             SliderFlags flags) {
   return SliderScalar(label, DataType_Float, v, &v_min, &v_max, format, flags);
 }
 
-bool Gui::SliderFloat2(const char *label, float v[2], float v_min, float v_max,
-                       const char *format, SliderFlags flags) {
+inline bool Gui::SliderFloat2(const char *label, float v[2], float v_min,
+                              float v_max, const char *format,
+                              SliderFlags flags) {
   return SliderScalarN(label, DataType_Float, v, 2, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::SliderFloat3(const char *label, float v[3], float v_min, float v_max,
-                       const char *format, SliderFlags flags) {
+inline bool Gui::SliderFloat3(const char *label, float v[3], float v_min,
+                              float v_max, const char *format,
+                              SliderFlags flags) {
   return SliderScalarN(label, DataType_Float, v, 3, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::SliderFloat4(const char *label, float v[4], float v_min, float v_max,
-                       const char *format, SliderFlags flags) {
+inline bool Gui::SliderFloat4(const char *label, float v[4], float v_min,
+                              float v_max, const char *format,
+                              SliderFlags flags) {
   return SliderScalarN(label, DataType_Float, v, 4, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::SliderAngle(const char *label, float *v_rad, float v_degrees_min,
-                      float v_degrees_max, const char *format,
-                      SliderFlags flags) {
+inline bool Gui::SliderAngle(const char *label, float *v_rad,
+                             float v_degrees_min, float v_degrees_max,
+                             const char *format, SliderFlags flags) {
   if (format == NULL)
     format = "%.0f deg";
   float v_deg = (*v_rad) * 360.0f / (2 * GUI_PI);
@@ -39918,32 +40370,33 @@ bool Gui::SliderAngle(const char *label, float *v_rad, float v_degrees_min,
   return value_changed;
 }
 
-bool Gui::SliderInt(const char *label, int *v, int v_min, int v_max,
-                    const char *format, SliderFlags flags) {
+inline bool Gui::SliderInt(const char *label, int *v, int v_min, int v_max,
+                           const char *format, SliderFlags flags) {
   return SliderScalar(label, DataType_S32, v, &v_min, &v_max, format, flags);
 }
 
-bool Gui::SliderInt2(const char *label, int v[2], int v_min, int v_max,
-                     const char *format, SliderFlags flags) {
+inline bool Gui::SliderInt2(const char *label, int v[2], int v_min, int v_max,
+                            const char *format, SliderFlags flags) {
   return SliderScalarN(label, DataType_S32, v, 2, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::SliderInt3(const char *label, int v[3], int v_min, int v_max,
-                     const char *format, SliderFlags flags) {
+inline bool Gui::SliderInt3(const char *label, int v[3], int v_min, int v_max,
+                            const char *format, SliderFlags flags) {
   return SliderScalarN(label, DataType_S32, v, 3, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::SliderInt4(const char *label, int v[4], int v_min, int v_max,
-                     const char *format, SliderFlags flags) {
+inline bool Gui::SliderInt4(const char *label, int v[4], int v_min, int v_max,
+                            const char *format, SliderFlags flags) {
   return SliderScalarN(label, DataType_S32, v, 4, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::VSliderScalar(const char *label, const Vec2 &size, DataType data_type,
-                        void *p_data, const void *p_min, const void *p_max,
-                        const char *format, SliderFlags flags) {
+inline bool Gui::VSliderScalar(const char *label, const Vec2 &size,
+                               DataType data_type, void *p_data,
+                               const void *p_min, const void *p_max,
+                               const char *format, SliderFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -40021,15 +40474,16 @@ bool Gui::VSliderScalar(const char *label, const Vec2 &size, DataType data_type,
   return value_changed;
 }
 
-bool Gui::VSliderFloat(const char *label, const Vec2 &size, float *v,
-                       float v_min, float v_max, const char *format,
-                       SliderFlags flags) {
+inline bool Gui::VSliderFloat(const char *label, const Vec2 &size, float *v,
+                              float v_min, float v_max, const char *format,
+                              SliderFlags flags) {
   return VSliderScalar(label, size, DataType_Float, v, &v_min, &v_max, format,
                        flags);
 }
 
-bool Gui::VSliderInt(const char *label, const Vec2 &size, int *v, int v_min,
-                     int v_max, const char *format, SliderFlags flags) {
+inline bool Gui::VSliderInt(const char *label, const Vec2 &size, int *v,
+                            int v_min, int v_max, const char *format,
+                            SliderFlags flags) {
   return VSliderScalar(label, size, DataType_S32, v, &v_min, &v_max, format,
                        flags);
 }
@@ -40059,37 +40513,6 @@ bool Gui::VSliderInt(const char *label, const Vec2 &size, int *v, int v_min,
 
 // We don't use strchr() because our strings are usually very short and often
 // start with '%'
-const char *ParseFormatFindStart(const char *fmt) {
-  while (char c = fmt[0]) {
-    if (c == '%' && fmt[1] != '%')
-      return fmt;
-    else if (c == '%')
-      fmt++;
-    fmt++;
-  }
-  return fmt;
-}
-
-const char *ParseFormatFindEnd(const char *fmt) {
-  // Printf/scanf types modifiers: I/L/h/j/l/t/w/z. Other uppercase letters
-  // qualify as types aka end of the format.
-  if (fmt[0] != '%')
-    return fmt;
-  const unsigned int ignored_uppercase_mask =
-      (1 << ('I' - 'A')) | (1 << ('L' - 'A'));
-  const unsigned int ignored_lowercase_mask =
-      (1 << ('h' - 'a')) | (1 << ('j' - 'a')) | (1 << ('l' - 'a')) |
-      (1 << ('t' - 'a')) | (1 << ('w' - 'a')) | (1 << ('z' - 'a'));
-  for (char c; (c = *fmt) != 0; fmt++) {
-    if (c >= 'A' && c <= 'Z' &&
-        ((1 << (c - 'A')) & ignored_uppercase_mask) == 0)
-      return fmt + 1;
-    if (c >= 'a' && c <= 'z' &&
-        ((1 << (c - 'a')) & ignored_lowercase_mask) == 0)
-      return fmt + 1;
-  }
-  return fmt;
-}
 
 // Extract the format out of a format string with leading or trailing
 // decorations
@@ -40097,8 +40520,8 @@ const char *ParseFormatFindEnd(const char *fmt) {
 //  fmt = "%.3f"       -> return fmt
 //  fmt = "hello %.3f" -> return fmt + 6
 //  fmt = "%.3f hello" -> return buf written with "%.3f"
-const char *ParseFormatTrimDecorations(const char *fmt, char *buf,
-                                       size_t buf_size) {
+inline const char *ParseFormatTrimDecorations(const char *fmt, char *buf,
+                                              size_t buf_size) {
   const char *fmt_start = ParseFormatFindStart(fmt);
   if (fmt_start[0] != '%')
     return "";
@@ -40115,8 +40538,8 @@ const char *ParseFormatTrimDecorations(const char *fmt, char *buf,
 // confuse atof/atoi
 // - stb_sprintf.h supports several new modifiers which format numbers in a way
 // that also makes them incompatible atof/atoi.
-void ParseFormatSanitizeForPrinting(const char *fmt_in, char *fmt_out,
-                                    size_t fmt_out_size) {
+inline void ParseFormatSanitizeForPrinting(const char *fmt_in, char *fmt_out,
+                                           size_t fmt_out_size) {
   const char *fmt_end = ParseFormatFindEnd(fmt_in);
   GUI_UNUSED(fmt_out_size);
   GUI_ASSERT(
@@ -40135,8 +40558,9 @@ void ParseFormatSanitizeForPrinting(const char *fmt_in, char *fmt_out,
 // - For scanning we need to remove all width and precision fields and flags
 // "%+3.7f" -> "%f". BUT don't strip types like "%I64d" which includes digits. !
 // "%07I64d" -> "%I64d"
-const char *ParseFormatSanitizeForScanning(const char *fmt_in, char *fmt_out,
-                                           size_t fmt_out_size) {
+inline const char *ParseFormatSanitizeForScanning(const char *fmt_in,
+                                                  char *fmt_out,
+                                                  size_t fmt_out_size) {
   const char *fmt_end = ParseFormatFindEnd(fmt_in);
   const char *fmt_out_begin = fmt_out;
   GUI_UNUSED(fmt_out_size);
@@ -40180,7 +40604,7 @@ static const char *Atoi(const char *src, TYPE *output) {
 // Parse display precision back from the display format string
 // FIXME: This is still used by some navigation code path to infer a minimum
 // tweak step, but we should aim to rework widgets so it isn't needed.
-int ParseFormatPrecision(const char *fmt, int default_precision) {
+inline int ParseFormatPrecision(const char *fmt, int default_precision) {
   fmt = ParseFormatFindStart(fmt);
   if (fmt[0] != '%')
     return default_precision;
@@ -40203,8 +40627,8 @@ int ParseFormatPrecision(const char *fmt, int default_precision) {
 // Create text input in place of another active widget (e.g. used when doing a
 // CTRL+Click on drag/slider widgets)
 // FIXME: Facilitate using this in variety of other situations.
-bool Gui::TempInputText(const Rect &bb, ID id, const char *label, char *buf,
-                        int buf_size, InputTextFlags flags) {
+inline bool Gui::TempInputText(const Rect &bb, ID id, const char *label,
+                               char *buf, int buf_size, InputTextFlags flags) {
   // On the first frame, g.TempInputTextId == 0, then on subsequent frames it
   // becomes == id. We clear ActiveID on the first frame to allow the
   // InputText() taking it back.
@@ -40230,9 +40654,10 @@ bool Gui::TempInputText(const Rect &bb, ID id, const char *label, char *buf,
 // intended: this way we allow CTRL+Click manual input to set a value out of
 // bounds, for maximum flexibility. However this may not be ideal for all uses,
 // as some user code may break on out of bound values.
-bool Gui::TempInputScalar(const Rect &bb, ID id, const char *label,
-                          DataType data_type, void *p_data, const char *format,
-                          const void *p_clamp_min, const void *p_clamp_max) {
+inline bool Gui::TempInputScalar(const Rect &bb, ID id, const char *label,
+                                 DataType data_type, void *p_data,
+                                 const char *format, const void *p_clamp_min,
+                                 const void *p_clamp_max) {
   // FIXME: May need to clarify display behavior if format doesn't contain %.
   // "%d" -> "%d" / "There are %d items" -> "%d" / "items" -> "%d" (fallback).
   // Also see #6405
@@ -40277,9 +40702,10 @@ bool Gui::TempInputScalar(const Rect &bb, ID id, const char *label,
 // the data. For an Input widget, p_step and p_step_fast are optional. Read code
 // of e.g. InputFloat(), InputInt() etc. or examples in 'Demo->Widgets->Data
 // Types' to understand how to use this function directly.
-bool Gui::InputScalar(const char *label, DataType data_type, void *p_data,
-                      const void *p_step, const void *p_step_fast,
-                      const char *format, InputTextFlags flags) {
+inline bool Gui::InputScalar(const char *label, DataType data_type,
+                             void *p_data, const void *p_step,
+                             const void *p_step_fast, const char *format,
+                             InputTextFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -40356,10 +40782,10 @@ bool Gui::InputScalar(const char *label, DataType data_type, void *p_data,
   return value_changed;
 }
 
-bool Gui::InputScalarN(const char *label, DataType data_type, void *p_data,
-                       int components, const void *p_step,
-                       const void *p_step_fast, const char *format,
-                       InputTextFlags flags) {
+inline bool Gui::InputScalarN(const char *label, DataType data_type,
+                              void *p_data, int components, const void *p_step,
+                              const void *p_step_fast, const char *format,
+                              InputTextFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -40392,30 +40818,31 @@ bool Gui::InputScalarN(const char *label, DataType data_type, void *p_data,
   return value_changed;
 }
 
-bool Gui::InputFloat(const char *label, float *v, float step, float step_fast,
-                     const char *format, InputTextFlags flags) {
+inline bool Gui::InputFloat(const char *label, float *v, float step,
+                            float step_fast, const char *format,
+                            InputTextFlags flags) {
   return InputScalar(
       label, DataType_Float, (void *)v, (void *)(step > 0.0f ? &step : NULL),
       (void *)(step_fast > 0.0f ? &step_fast : NULL), format, flags);
 }
 
-bool Gui::InputFloat2(const char *label, float v[2], const char *format,
-                      InputTextFlags flags) {
+inline bool Gui::InputFloat2(const char *label, float v[2], const char *format,
+                             InputTextFlags flags) {
   return InputScalarN(label, DataType_Float, v, 2, NULL, NULL, format, flags);
 }
 
-bool Gui::InputFloat3(const char *label, float v[3], const char *format,
-                      InputTextFlags flags) {
+inline bool Gui::InputFloat3(const char *label, float v[3], const char *format,
+                             InputTextFlags flags) {
   return InputScalarN(label, DataType_Float, v, 3, NULL, NULL, format, flags);
 }
 
-bool Gui::InputFloat4(const char *label, float v[4], const char *format,
-                      InputTextFlags flags) {
+inline bool Gui::InputFloat4(const char *label, float v[4], const char *format,
+                             InputTextFlags flags) {
   return InputScalarN(label, DataType_Float, v, 4, NULL, NULL, format, flags);
 }
 
-bool Gui::InputInt(const char *label, int *v, int step, int step_fast,
-                   InputTextFlags flags) {
+inline bool Gui::InputInt(const char *label, int *v, int step, int step_fast,
+                          InputTextFlags flags) {
   // Hexadecimal input provided as a convenience but the flag name is awkward.
   // Typically you'd use InputText() to parse your own data, if you want to
   // handle prefixes.
@@ -40426,21 +40853,21 @@ bool Gui::InputInt(const char *label, int *v, int step, int step_fast,
       (void *)(step_fast > 0 ? &step_fast : NULL), format, flags);
 }
 
-bool Gui::InputInt2(const char *label, int v[2], InputTextFlags flags) {
+inline bool Gui::InputInt2(const char *label, int v[2], InputTextFlags flags) {
   return InputScalarN(label, DataType_S32, v, 2, NULL, NULL, "%d", flags);
 }
 
-bool Gui::InputInt3(const char *label, int v[3], InputTextFlags flags) {
+inline bool Gui::InputInt3(const char *label, int v[3], InputTextFlags flags) {
   return InputScalarN(label, DataType_S32, v, 3, NULL, NULL, "%d", flags);
 }
 
-bool Gui::InputInt4(const char *label, int v[4], InputTextFlags flags) {
+inline bool Gui::InputInt4(const char *label, int v[4], InputTextFlags flags) {
   return InputScalarN(label, DataType_S32, v, 4, NULL, NULL, "%d", flags);
 }
 
-bool Gui::InputDouble(const char *label, double *v, double step,
-                      double step_fast, const char *format,
-                      InputTextFlags flags) {
+inline bool Gui::InputDouble(const char *label, double *v, double step,
+                             double step_fast, const char *format,
+                             InputTextFlags flags) {
   return InputScalar(
       label, DataType_Double, (void *)v, (void *)(step > 0.0 ? &step : NULL),
       (void *)(step_fast > 0.0 ? &step_fast : NULL), format, flags);
@@ -40459,24 +40886,28 @@ bool Gui::InputDouble(const char *label, double *v, double step,
 // - DebugNodeInputTextState() [Internal]
 //-------------------------------------------------------------------------
 
-bool Gui::InputText(const char *label, char *buf, size_t buf_size,
-                    InputTextFlags flags, ::InputTextCallback callback,
-                    void *user_data) {
+inline bool Gui::InputText(const char *label, char *buf, size_t buf_size,
+                           InputTextFlags flags, ::InputTextCallback callback,
+                           void *user_data) {
   GUI_ASSERT(!(flags & InputTextFlags_Multiline)); // call InputTextMultiline()
   return InputTextEx(label, NULL, buf, (int)buf_size, Vec2(0, 0), flags,
                      callback, user_data);
 }
 
-bool Gui::InputTextMultiline(const char *label, char *buf, size_t buf_size,
-                             const Vec2 &size, InputTextFlags flags,
-                             ::InputTextCallback callback, void *user_data) {
+inline bool Gui::InputTextMultiline(const char *label, char *buf,
+                                    size_t buf_size, const Vec2 &size,
+                                    InputTextFlags flags,
+                                    ::InputTextCallback callback,
+                                    void *user_data) {
   return InputTextEx(label, NULL, buf, (int)buf_size, size,
                      flags | InputTextFlags_Multiline, callback, user_data);
 }
 
-bool Gui::InputTextWithHint(const char *label, const char *hint, char *buf,
-                            size_t buf_size, InputTextFlags flags,
-                            ::InputTextCallback callback, void *user_data) {
+inline bool Gui::InputTextWithHint(const char *label, const char *hint,
+                                   char *buf, size_t buf_size,
+                                   InputTextFlags flags,
+                                   ::InputTextCallback callback,
+                                   void *user_data) {
   GUI_ASSERT(
       !(flags & InputTextFlags_Multiline)); // call InputTextMultiline() or
                                             // InputTextEx() manually if
@@ -40752,13 +41183,13 @@ static void stb_textedit_replace(InputTextState *str, STB_TexteditState *state,
                  // because of how we currently use stb_textedit_replace()
 }
 
-void InputTextState::OnKeyPressed(int key) {
+inline void InputTextState::OnKeyPressed(int key) {
   stb_textedit_key(this, &Stb, key);
   CursorFollow = true;
   CursorAnimReset();
 }
 
-InputTextCallbackData::InputTextCallbackData() {
+inline InputTextCallbackData::InputTextCallbackData() {
   memset(this, 0, sizeof(*this));
 }
 
@@ -40767,7 +41198,7 @@ InputTextCallbackData::InputTextCallbackData() {
 // manipulating wchar)
 // FIXME: The existence of this rarely exercised code path is a bit of a
 // nuisance.
-void InputTextCallbackData::DeleteChars(int pos, int bytes_count) {
+inline void InputTextCallbackData::DeleteChars(int pos, int bytes_count) {
   GUI_ASSERT(pos + bytes_count <= BufTextLen);
   char *dst = Buf + pos;
   const char *src = Buf + pos + bytes_count;
@@ -40784,8 +41215,8 @@ void InputTextCallbackData::DeleteChars(int pos, int bytes_count) {
   BufTextLen -= bytes_count;
 }
 
-void InputTextCallbackData::InsertChars(int pos, const char *new_text,
-                                        const char *new_text_end) {
+inline void InputTextCallbackData::InsertChars(int pos, const char *new_text,
+                                               const char *new_text_end) {
   // Accept null ranges
   if (new_text == new_text_end)
     return;
@@ -40996,7 +41427,7 @@ static void InputTextReconcileUndoStateAfterUserCallback(InputTextState *state,
 // desirable that we discourage users from taking advantage of the "user not
 // retaining data" trick, but that more likely be attractive when we do have
 // _NoLiveEdit flag available.
-void Gui::InputTextDeactivateHook(ID id) {
+inline void Gui::InputTextDeactivateHook(ID id) {
   Context &g = *GGui;
   InputTextState *state = &g.InputTextState;
   if (id == 0 || state->ID != id)
@@ -41028,9 +41459,10 @@ void Gui::InputTextDeactivateHook(ID id) {
 //  doing UTF8 > U16 > UTF8 conversions on the go to easily interface with
 //  stb_textedit. Ideally should stay in UTF-8 all the time. See
 //  https://github.com/nothings/stb/issues/188)
-bool Gui::InputTextEx(const char *label, const char *hint, char *buf,
-                      int buf_size, const Vec2 &size_arg, InputTextFlags flags,
-                      ::InputTextCallback callback, void *callback_user_data) {
+inline bool Gui::InputTextEx(const char *label, const char *hint, char *buf,
+                             int buf_size, const Vec2 &size_arg,
+                             InputTextFlags flags, ::InputTextCallback callback,
+                             void *callback_user_data) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -42219,7 +42651,7 @@ bool Gui::InputTextEx(const char *label, const char *hint, char *buf,
     return value_changed;
 }
 
-void Gui::DebugNodeInputTextState(InputTextState *state) {
+inline void Gui::DebugNodeInputTextState(InputTextState *state) {
 #ifndef GUI_DISABLE_DEBUG_TOOLS
   Context &g = *GGui;
   STB_TexteditState *stb_state = &state->Stb;
@@ -42282,7 +42714,8 @@ void Gui::DebugNodeInputTextState(InputTextState *state) {
 // - ColorPickerOptionsPopup() [Internal]
 //-------------------------------------------------------------------------
 
-bool Gui::ColorEdit3(const char *label, float col[3], ColorEditFlags flags) {
+inline bool Gui::ColorEdit3(const char *label, float col[3],
+                            ColorEditFlags flags) {
   return ColorEdit4(label, col, flags | ColorEditFlags_NoAlpha);
 }
 
@@ -42323,7 +42756,8 @@ static void ColorEditRestoreHS(const float *col, float *H, float *S, float *V) {
 // floats if ColorEditFlags_NoAlpha flag is set. With typical options:
 // Left-click on color square to open color picker. Right-click to open option
 // menu. CTRL-Click over input fields to edit them and TAB to go to next item.
-bool Gui::ColorEdit4(const char *label, float col[4], ColorEditFlags flags) {
+inline bool Gui::ColorEdit4(const char *label, float col[4],
+                            ColorEditFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -42607,7 +43041,8 @@ bool Gui::ColorEdit4(const char *label, float col[4], ColorEditFlags flags) {
   return value_changed;
 }
 
-bool Gui::ColorPicker3(const char *label, float col[3], ColorEditFlags flags) {
+inline bool Gui::ColorPicker3(const char *label, float col[3],
+                              ColorEditFlags flags) {
   float col4[4] = {col[0], col[1], col[2], 1.0f};
   if (!ColorPicker4(label, col4, flags | ColorEditFlags_NoAlpha))
     return false;
@@ -42643,8 +43078,8 @@ static void RenderArrowsForVerticalBar(DrawList *draw_list, Vec2 pos,
 // scrollbar appears, affecting automatic width..)
 // FIXME: this is trying to be aware of style.Alpha but not fully correct. Also,
 // the color wheel will have overlapping glitches with (style.Alpha < 1.0)
-bool Gui::ColorPicker4(const char *label, float col[4], ColorEditFlags flags,
-                       const float *ref_col) {
+inline bool Gui::ColorPicker4(const char *label, float col[4],
+                              ColorEditFlags flags, const float *ref_col) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -43105,8 +43540,8 @@ bool Gui::ColorPicker4(const char *label, float col[4], ColorEditFlags flags,
 // Yet show it in the tooltip. 'desc_id' is not called 'label' because we don't
 // display it next to the button, but only in the tooltip. Note that 'col' may
 // be encoded in HSV if ColorEditFlags_InputHSV is set.
-bool Gui::ColorButton(const char *desc_id, const Vec4 &col,
-                      ColorEditFlags flags, const Vec2 &size_arg) {
+inline bool Gui::ColorButton(const char *desc_id, const Vec4 &col,
+                             ColorEditFlags flags, const Vec2 &size_arg) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43204,7 +43639,7 @@ bool Gui::ColorButton(const char *desc_id, const Vec4 &col,
 }
 
 // Initialize/override default color options
-void Gui::SetColorEditOptions(ColorEditFlags flags) {
+inline void Gui::SetColorEditOptions(ColorEditFlags flags) {
   Context &g = *GGui;
   if ((flags & ColorEditFlags_DisplayMask_) == 0)
     flags |= ColorEditFlags_DefaultOptions_ & ColorEditFlags_DisplayMask_;
@@ -43226,112 +43661,9 @@ void Gui::SetColorEditOptions(ColorEditFlags flags) {
 }
 
 // Note: only access 3 floats if ColorEditFlags_NoAlpha flag is set.
-void Gui::ColorTooltip(const char *text, const float *col,
-                       ColorEditFlags flags) {
-  Context &g = *GGui;
 
-  if (!BeginTooltipEx(TooltipFlags_OverridePrevious, WindowFlags_None))
-    return;
-  const char *text_end = text ? FindRenderedTextEnd(text, NULL) : text;
-  if (text_end > text) {
-    TextEx(text, text_end);
-    Separator();
-  }
-
-  Vec2 sz(g.FontSize * 3 + g.Style.FramePadding.y * 2,
-          g.FontSize * 3 + g.Style.FramePadding.y * 2);
-  Vec4 cf(col[0], col[1], col[2],
-          (flags & ColorEditFlags_NoAlpha) ? 1.0f : col[3]);
-  int cr = GUI_F32_TO_INT8_SAT(col[0]), cg = GUI_F32_TO_INT8_SAT(col[1]),
-      cb = GUI_F32_TO_INT8_SAT(col[2]),
-      ca = (flags & ColorEditFlags_NoAlpha) ? 255 : GUI_F32_TO_INT8_SAT(col[3]);
-  ColorButton("##preview", cf,
-              (flags & (ColorEditFlags_InputMask_ | ColorEditFlags_NoAlpha |
-                        ColorEditFlags_AlphaPreview |
-                        ColorEditFlags_AlphaPreviewHalf)) |
-                  ColorEditFlags_NoTooltip,
-              sz);
-  SameLine();
-  if ((flags & ColorEditFlags_InputRGB) ||
-      !(flags & ColorEditFlags_InputMask_)) {
-    if (flags & ColorEditFlags_NoAlpha)
-      Text("#%02X%02X%02X\nR: %d, G: %d, B: %d\n(%.3f, %.3f, %.3f)", cr, cg, cb,
-           cr, cg, cb, col[0], col[1], col[2]);
-    else
-      Text(
-          "#%02X%02X%02X%02X\nR:%d, G:%d, B:%d, A:%d\n(%.3f, %.3f, %.3f, %.3f)",
-          cr, cg, cb, ca, cr, cg, cb, ca, col[0], col[1], col[2], col[3]);
-  } else if (flags & ColorEditFlags_InputHSV) {
-    if (flags & ColorEditFlags_NoAlpha)
-      Text("H: %.3f, S: %.3f, V: %.3f", col[0], col[1], col[2]);
-    else
-      Text("H: %.3f, S: %.3f, V: %.3f, A: %.3f", col[0], col[1], col[2],
-           col[3]);
-  }
-  EndTooltip();
-}
-
-void Gui::ColorEditOptionsPopup(const float *col, ColorEditFlags flags) {
-  bool allow_opt_inputs = !(flags & ColorEditFlags_DisplayMask_);
-  bool allow_opt_datatype = !(flags & ColorEditFlags_DataTypeMask_);
-  if ((!allow_opt_inputs && !allow_opt_datatype) || !BeginPopup("context"))
-    return;
-  Context &g = *GGui;
-  g.LockMarkEdited++;
-  ColorEditFlags opts = g.ColorEditOptions;
-  if (allow_opt_inputs) {
-    if (RadioButton("RGB", (opts & ColorEditFlags_DisplayRGB) != 0))
-      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayRGB;
-    if (RadioButton("HSV", (opts & ColorEditFlags_DisplayHSV) != 0))
-      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayHSV;
-    if (RadioButton("Hex", (opts & ColorEditFlags_DisplayHex) != 0))
-      opts = (opts & ~ColorEditFlags_DisplayMask_) | ColorEditFlags_DisplayHex;
-  }
-  if (allow_opt_datatype) {
-    if (allow_opt_inputs)
-      Separator();
-    if (RadioButton("0..255", (opts & ColorEditFlags_Uint8) != 0))
-      opts = (opts & ~ColorEditFlags_DataTypeMask_) | ColorEditFlags_Uint8;
-    if (RadioButton("0.00..1.00", (opts & ColorEditFlags_Float) != 0))
-      opts = (opts & ~ColorEditFlags_DataTypeMask_) | ColorEditFlags_Float;
-  }
-
-  if (allow_opt_inputs || allow_opt_datatype)
-    Separator();
-  if (Button("Copy as..", Vec2(-1, 0)))
-    OpenPopup("Copy");
-  if (BeginPopup("Copy")) {
-    int cr = GUI_F32_TO_INT8_SAT(col[0]), cg = GUI_F32_TO_INT8_SAT(col[1]),
-        cb = GUI_F32_TO_INT8_SAT(col[2]),
-        ca = (flags & ColorEditFlags_NoAlpha) ? 255
-                                              : GUI_F32_TO_INT8_SAT(col[3]);
-    char buf[64];
-    FormatString(buf, GUI_ARRAYSIZE(buf), "(%.3ff, %.3ff, %.3ff, %.3ff)",
-                 col[0], col[1], col[2],
-                 (flags & ColorEditFlags_NoAlpha) ? 1.0f : col[3]);
-    if (Selectable(buf))
-      SetClipboardText(buf);
-    FormatString(buf, GUI_ARRAYSIZE(buf), "(%d,%d,%d,%d)", cr, cg, cb, ca);
-    if (Selectable(buf))
-      SetClipboardText(buf);
-    FormatString(buf, GUI_ARRAYSIZE(buf), "#%02X%02X%02X", cr, cg, cb);
-    if (Selectable(buf))
-      SetClipboardText(buf);
-    if (!(flags & ColorEditFlags_NoAlpha)) {
-      FormatString(buf, GUI_ARRAYSIZE(buf), "#%02X%02X%02X%02X", cr, cg, cb,
-                   ca);
-      if (Selectable(buf))
-        SetClipboardText(buf);
-    }
-    EndPopup();
-  }
-
-  g.ColorEditOptions = opts;
-  EndPopup();
-  g.LockMarkEdited--;
-}
-
-void Gui::ColorPickerOptionsPopup(const float *ref_col, ColorEditFlags flags) {
+inline void Gui::ColorPickerOptionsPopup(const float *ref_col,
+                                         ColorEditFlags flags) {
   bool allow_opt_picker = !(flags & ColorEditFlags_PickerMask_);
   bool allow_opt_alpha_bar =
       !(flags & ColorEditFlags_NoAlpha) && !(flags & ColorEditFlags_AlphaBar);
@@ -43398,7 +43730,7 @@ void Gui::ColorPickerOptionsPopup(const float *ref_col, ColorEditFlags flags) {
 // - CollapsingHeader()
 //-------------------------------------------------------------------------
 
-bool Gui::TreeNode(const char *str_id, const char *fmt, ...) {
+inline bool Gui::TreeNode(const char *str_id, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   bool is_open = TreeNodeExV(str_id, 0, fmt, args);
@@ -43406,7 +43738,7 @@ bool Gui::TreeNode(const char *str_id, const char *fmt, ...) {
   return is_open;
 }
 
-bool Gui::TreeNode(const void *ptr_id, const char *fmt, ...) {
+inline bool Gui::TreeNode(const void *ptr_id, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   bool is_open = TreeNodeExV(ptr_id, 0, fmt, args);
@@ -43414,22 +43746,22 @@ bool Gui::TreeNode(const void *ptr_id, const char *fmt, ...) {
   return is_open;
 }
 
-bool Gui::TreeNode(const char *label) {
+inline bool Gui::TreeNode(const char *label) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
   return TreeNodeBehavior(window->GetID(label), 0, label, NULL);
 }
 
-bool Gui::TreeNodeV(const char *str_id, const char *fmt, va_list args) {
+inline bool Gui::TreeNodeV(const char *str_id, const char *fmt, va_list args) {
   return TreeNodeExV(str_id, 0, fmt, args);
 }
 
-bool Gui::TreeNodeV(const void *ptr_id, const char *fmt, va_list args) {
+inline bool Gui::TreeNodeV(const void *ptr_id, const char *fmt, va_list args) {
   return TreeNodeExV(ptr_id, 0, fmt, args);
 }
 
-bool Gui::TreeNodeEx(const char *label, TreeNodeFlags flags) {
+inline bool Gui::TreeNodeEx(const char *label, TreeNodeFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43437,8 +43769,8 @@ bool Gui::TreeNodeEx(const char *label, TreeNodeFlags flags) {
   return TreeNodeBehavior(window->GetID(label), flags, label, NULL);
 }
 
-bool Gui::TreeNodeEx(const char *str_id, TreeNodeFlags flags, const char *fmt,
-                     ...) {
+inline bool Gui::TreeNodeEx(const char *str_id, TreeNodeFlags flags,
+                            const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   bool is_open = TreeNodeExV(str_id, flags, fmt, args);
@@ -43446,8 +43778,8 @@ bool Gui::TreeNodeEx(const char *str_id, TreeNodeFlags flags, const char *fmt,
   return is_open;
 }
 
-bool Gui::TreeNodeEx(const void *ptr_id, TreeNodeFlags flags, const char *fmt,
-                     ...) {
+inline bool Gui::TreeNodeEx(const void *ptr_id, TreeNodeFlags flags,
+                            const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   bool is_open = TreeNodeExV(ptr_id, flags, fmt, args);
@@ -43455,8 +43787,8 @@ bool Gui::TreeNodeEx(const void *ptr_id, TreeNodeFlags flags, const char *fmt,
   return is_open;
 }
 
-bool Gui::TreeNodeExV(const char *str_id, TreeNodeFlags flags, const char *fmt,
-                      va_list args) {
+inline bool Gui::TreeNodeExV(const char *str_id, TreeNodeFlags flags,
+                             const char *fmt, va_list args) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43466,8 +43798,8 @@ bool Gui::TreeNodeExV(const char *str_id, TreeNodeFlags flags, const char *fmt,
   return TreeNodeBehavior(window->GetID(str_id), flags, label, label_end);
 }
 
-bool Gui::TreeNodeExV(const void *ptr_id, TreeNodeFlags flags, const char *fmt,
-                      va_list args) {
+inline bool Gui::TreeNodeExV(const void *ptr_id, TreeNodeFlags flags,
+                             const char *fmt, va_list args) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43477,55 +43809,8 @@ bool Gui::TreeNodeExV(const void *ptr_id, TreeNodeFlags flags, const char *fmt,
   return TreeNodeBehavior(window->GetID(ptr_id), flags, label, label_end);
 }
 
-void Gui::TreeNodeSetOpen(ID id, bool open) {
-  Context &g = *GGui;
-  Storage *storage = g.CurrentWindow->DC.StateStorage;
-  storage->SetInt(id, open ? 1 : 0);
-}
-
-bool Gui::TreeNodeUpdateNextOpen(ID id, TreeNodeFlags flags) {
-  if (flags & TreeNodeFlags_Leaf)
-    return true;
-
-  // We only write to the tree storage if the user clicks (or explicitly use the
-  // SetNextItemOpen function)
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Storage *storage = window->DC.StateStorage;
-
-  bool is_open;
-  if (g.NextItemData.Flags & NextItemDataFlags_HasOpen) {
-    if (g.NextItemData.OpenCond & Cond_Always) {
-      is_open = g.NextItemData.OpenVal;
-      TreeNodeSetOpen(id, is_open);
-    } else {
-      // We treat Cond_Once and Cond_FirstUseEver the same because
-      // tree node state are not saved persistently.
-      const int stored_value = storage->GetInt(id, -1);
-      if (stored_value == -1) {
-        is_open = g.NextItemData.OpenVal;
-        TreeNodeSetOpen(id, is_open);
-      } else {
-        is_open = stored_value != 0;
-      }
-    }
-  } else {
-    is_open =
-        storage->GetInt(id, (flags & TreeNodeFlags_DefaultOpen) ? 1 : 0) != 0;
-  }
-
-  // When logging is enabled, we automatically expand tree nodes (but *NOT*
-  // collapsing headers.. seems like sensible behavior). NB- If we are above max
-  // depth we still allow manually opened nodes to be logged.
-  if (g.LogEnabled && !(flags & TreeNodeFlags_NoAutoOpenOnLog) &&
-      (window->DC.TreeDepth - g.LogDepthRef) < g.LogDepthToExpand)
-    is_open = true;
-
-  return is_open;
-}
-
-bool Gui::TreeNodeBehavior(ID id, TreeNodeFlags flags, const char *label,
-                           const char *label_end) {
+inline bool Gui::TreeNodeBehavior(ID id, TreeNodeFlags flags, const char *label,
+                                  const char *label_end) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43821,29 +44106,21 @@ bool Gui::TreeNodeBehavior(ID id, TreeNodeFlags flags, const char *label,
   return is_open;
 }
 
-void Gui::TreePush(const char *str_id) {
+inline void Gui::TreePush(const char *str_id) {
   Window *window = GetCurrentWindow();
   Indent();
   window->DC.TreeDepth++;
   PushID(str_id);
 }
 
-void Gui::TreePush(const void *ptr_id) {
+inline void Gui::TreePush(const void *ptr_id) {
   Window *window = GetCurrentWindow();
   Indent();
   window->DC.TreeDepth++;
   PushID(ptr_id);
 }
 
-void Gui::TreePushOverrideID(ID id) {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Indent();
-  window->DC.TreeDepth++;
-  PushOverrideID(id);
-}
-
-void Gui::TreePop() {
+inline void Gui::TreePop() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   Unindent();
@@ -43874,13 +44151,13 @@ void Gui::TreePop() {
 }
 
 // Horizontal distance preceding label when using TreeNode() or Bullet()
-float Gui::GetTreeNodeToLabelSpacing() {
+inline float Gui::GetTreeNodeToLabelSpacing() {
   Context &g = *GGui;
   return g.FontSize + (g.Style.FramePadding.x * 2.0f);
 }
 
 // Set next TreeNode/CollapsingHeader open state.
-void Gui::SetNextItemOpen(bool is_open, Cond cond) {
+inline void Gui::SetNextItemOpen(bool is_open, Cond cond) {
   Context &g = *GGui;
   if (g.CurrentWindow->SkipItems)
     return;
@@ -43894,7 +44171,7 @@ void Gui::SetNextItemOpen(bool is_open, Cond cond) {
 // basically the same as calling TreeNodeEx(label,
 // TreeNodeFlags_CollapsingHeader). You can remove the _NoTreePushOnOpen
 // flag if you want behavior closer to normal TreeNode().
-bool Gui::CollapsingHeader(const char *label, TreeNodeFlags flags) {
+inline bool Gui::CollapsingHeader(const char *label, TreeNodeFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43909,8 +44186,8 @@ bool Gui::CollapsingHeader(const char *label, TreeNodeFlags flags) {
 // p_visible != NULL && *p_visible == false : do not show the header at all
 // Do not mistake this with the Open state of the header itself, which you can
 // adjust with SetNextItemOpen() or TreeNodeFlags_DefaultOpen.
-bool Gui::CollapsingHeader(const char *label, bool *p_visible,
-                           TreeNodeFlags flags) {
+inline bool Gui::CollapsingHeader(const char *label, bool *p_visible,
+                                  TreeNodeFlags flags) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -43959,8 +44236,8 @@ bool Gui::CollapsingHeader(const char *label, bool *p_visible,
 // also frequently used flags.
 // FIXME: Selectable() with (size.x == 0.0f) and (SelectableTextAlign.x > 0.0f)
 // followed by SameLine() is currently not supported.
-bool Gui::Selectable(const char *label, bool selected, SelectableFlags flags,
-                     const Vec2 &size_arg) {
+inline bool Gui::Selectable(const char *label, bool selected,
+                            SelectableFlags flags, const Vec2 &size_arg) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -44143,15 +44420,6 @@ bool Gui::Selectable(const char *label, bool selected, SelectableFlags flags,
   return pressed; //-V1020
 }
 
-bool Gui::Selectable(const char *label, bool *p_selected, SelectableFlags flags,
-                     const Vec2 &size_arg) {
-  if (Selectable(label, *p_selected, flags, size_arg)) {
-    *p_selected = !*p_selected;
-    return true;
-  }
-  return false;
-}
-
 //-------------------------------------------------------------------------
 // [SECTION] Widgets: Typing-Select support
 //-------------------------------------------------------------------------
@@ -44166,7 +44434,8 @@ bool Gui::Selectable(const char *label, bool *p_selected, SelectableFlags flags,
 //           [](void*, int n) { return my_items[n]->Name; }, &my_items, -1);
 // However the code is written in a way where calling it from multiple locations
 // is safe (e.g. to obtain buffer).
-TypingSelectRequest *Gui::GetTypingSelectRequest(TypingSelectFlags flags) {
+inline TypingSelectRequest *
+Gui::GetTypingSelectRequest(TypingSelectFlags flags) {
   Context &g = *GGui;
   TypingSelectState *data = &g.TypingSelectState;
   TypingSelectRequest *out_request = &data->Request;
@@ -44288,9 +44557,10 @@ static int Strimatchlen(const char *s1, const char *s1_end, const char *s2) {
 //   if your SetNextItemSelectionData() values are indices, you can obtain it
 //   from MultiSelectIO::NavIdItem, otherwise from
 //   g.NavLastValidSelectionUserData.
-int Gui::TypingSelectFindMatch(TypingSelectRequest *req, int items_count,
-                               const char *(*get_item_name_func)(void *, int),
-                               void *user_data, int nav_item_idx) {
+inline int Gui::TypingSelectFindMatch(TypingSelectRequest *req, int items_count,
+                                      const char *(*get_item_name_func)(void *,
+                                                                        int),
+                                      void *user_data, int nav_item_idx) {
   if (req == NULL ||
       req->SelectRequest == false) // Support NULL parameter so both calls can
                                    // be done from same spot.
@@ -44310,7 +44580,7 @@ int Gui::TypingSelectFindMatch(TypingSelectRequest *req, int items_count,
 
 // Special handling when a single character is repeated: perform search on a
 // single letter and goes to next.
-int Gui::TypingSelectFindNextSingleCharMatch(
+inline int Gui::TypingSelectFindNextSingleCharMatch(
     TypingSelectRequest *req, int items_count,
     const char *(*get_item_name_func)(void *, int), void *user_data,
     int nav_item_idx) {
@@ -44340,7 +44610,7 @@ int Gui::TypingSelectFindNextSingleCharMatch(
   return first_match_idx; // First result
 }
 
-int Gui::TypingSelectFindBestLeadingMatch(
+inline int Gui::TypingSelectFindBestLeadingMatch(
     TypingSelectRequest *req, int items_count,
     const char *(*get_item_name_func)(void *, int), void *user_data) {
   int longest_match_idx = -1;
@@ -44359,31 +44629,9 @@ int Gui::TypingSelectFindBestLeadingMatch(
   return longest_match_idx;
 }
 
-void Gui::DebugNodeTypingSelectState(TypingSelectState *data) {
-#ifndef GUI_DISABLE_DEBUG_TOOLS
-  Text("SearchBuffer = \"%s\"", data->SearchBuffer);
-  Text("SingleCharMode = %d, Size = %d, Lock = %d",
-       data->Request.SingleCharMode, data->Request.SingleCharSize,
-       data->SingleCharModeLock);
-  Text("LastRequest = time: %.2f, frame: %d", data->LastRequestTime,
-       data->LastRequestFrame);
-#else
-  GUI_UNUSED(data);
-#endif
-}
-
 //-------------------------------------------------------------------------
 // [SECTION] Widgets: Multi-Select support
 //-------------------------------------------------------------------------
-
-void Gui::SetNextItemSelectionUserData(SelectionUserData selection_user_data) {
-  // Note that flags will be cleared by ItemAdd(), so it's only useful for
-  // Navigation code! This designed so widgets can also cheaply set this before
-  // calling ItemAdd(), so we are not tied to MultiSelect api.
-  Context &g = *GGui;
-  g.NextItemData.ItemFlags |= ItemFlags_HasSelectionUserData;
-  g.NextItemData.SelectionUserData = selection_user_data;
-}
 
 //-------------------------------------------------------------------------
 // [SECTION] Widgets: ListBox
@@ -44400,7 +44648,7 @@ void Gui::SetNextItemSelectionUserData(SelectionUserData selection_user_data) {
 // calculated from an item count (e.g. 10 * item_height) consider adding a
 // fractional part to facilitate seeing scrolling boundaries (e.g. 10.25 *
 // item_height).
-bool Gui::BeginListBox(const char *label, const Vec2 &size_arg) {
+inline bool Gui::BeginListBox(const char *label, const Vec2 &size_arg) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -44448,7 +44696,7 @@ bool Gui::BeginListBox(const char *label, const Vec2 &size_arg) {
   return true;
 }
 
-void Gui::EndListBox() {
+inline void Gui::EndListBox() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(
@@ -44462,9 +44710,9 @@ void Gui::EndListBox() {
               // whole ListBox including label
 }
 
-bool Gui::ListBox(const char *label, int *current_item,
-                  const char *const items[], int items_count,
-                  int height_items) {
+inline bool Gui::ListBox(const char *label, int *current_item,
+                         const char *const items[], int items_count,
+                         int height_items) {
   const bool value_changed = ListBox(label, current_item, Items_ArrayGetter,
                                      (void *)items, items_count, height_items);
   return value_changed;
@@ -44473,9 +44721,10 @@ bool Gui::ListBox(const char *label, int *current_item,
 // This is merely a helper around BeginListBox(), EndListBox().
 // Considering using those directly to submit custom data or store selection
 // differently.
-bool Gui::ListBox(const char *label, int *current_item,
-                  const char *(*getter)(void *user_data, int idx),
-                  void *user_data, int items_count, int height_in_items) {
+inline bool Gui::ListBox(const char *label, int *current_item,
+                         const char *(*getter)(void *user_data, int idx),
+                         void *user_data, int items_count,
+                         int height_in_items) {
   Context &g = *GGui;
 
   // Calculate size from "height_in_items"
@@ -44535,10 +44784,11 @@ bool Gui::ListBox(const char *label, int *current_item,
 // - others https://github.com/ocornut/imgui/wiki/Useful-Extensions
 //-------------------------------------------------------------------------
 
-int Gui::PlotEx(PlotType plot_type, const char *label,
-                float (*values_getter)(void *data, int idx), void *data,
-                int values_count, int values_offset, const char *overlay_text,
-                float scale_min, float scale_max, const Vec2 &size_arg) {
+inline int Gui::PlotEx(PlotType plot_type, const char *label,
+                       float (*values_getter)(void *data, int idx), void *data,
+                       int values_count, int values_offset,
+                       const char *overlay_text, float scale_min,
+                       float scale_max, const Vec2 &size_arg) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
@@ -44699,39 +44949,39 @@ static float Plot_ArrayGetter(void *data, int idx) {
   return v;
 }
 
-void Gui::PlotLines(const char *label, const float *values, int values_count,
-                    int values_offset, const char *overlay_text,
-                    float scale_min, float scale_max, Vec2 graph_size,
-                    int stride) {
+inline void Gui::PlotLines(const char *label, const float *values,
+                           int values_count, int values_offset,
+                           const char *overlay_text, float scale_min,
+                           float scale_max, Vec2 graph_size, int stride) {
   PlotArrayGetterData data(values, stride);
   PlotEx(PlotType_Lines, label, &Plot_ArrayGetter, (void *)&data, values_count,
          values_offset, overlay_text, scale_min, scale_max, graph_size);
 }
 
-void Gui::PlotLines(const char *label,
-                    float (*values_getter)(void *data, int idx), void *data,
-                    int values_count, int values_offset,
-                    const char *overlay_text, float scale_min, float scale_max,
-                    Vec2 graph_size) {
+inline void Gui::PlotLines(const char *label,
+                           float (*values_getter)(void *data, int idx),
+                           void *data, int values_count, int values_offset,
+                           const char *overlay_text, float scale_min,
+                           float scale_max, Vec2 graph_size) {
   PlotEx(PlotType_Lines, label, values_getter, data, values_count,
          values_offset, overlay_text, scale_min, scale_max, graph_size);
 }
 
-void Gui::PlotHistogram(const char *label, const float *values,
-                        int values_count, int values_offset,
-                        const char *overlay_text, float scale_min,
-                        float scale_max, Vec2 graph_size, int stride) {
+inline void Gui::PlotHistogram(const char *label, const float *values,
+                               int values_count, int values_offset,
+                               const char *overlay_text, float scale_min,
+                               float scale_max, Vec2 graph_size, int stride) {
   PlotArrayGetterData data(values, stride);
   PlotEx(PlotType_Histogram, label, &Plot_ArrayGetter, (void *)&data,
          values_count, values_offset, overlay_text, scale_min, scale_max,
          graph_size);
 }
 
-void Gui::PlotHistogram(const char *label,
-                        float (*values_getter)(void *data, int idx), void *data,
-                        int values_count, int values_offset,
-                        const char *overlay_text, float scale_min,
-                        float scale_max, Vec2 graph_size) {
+inline void Gui::PlotHistogram(const char *label,
+                               float (*values_getter)(void *data, int idx),
+                               void *data, int values_count, int values_offset,
+                               const char *overlay_text, float scale_min,
+                               float scale_max, Vec2 graph_size) {
   PlotEx(PlotType_Histogram, label, values_getter, data, values_count,
          values_offset, overlay_text, scale_min, scale_max, graph_size);
 }
@@ -44743,17 +44993,7 @@ void Gui::PlotHistogram(const char *label,
 // - Value()
 //-------------------------------------------------------------------------
 
-void Gui::Value(const char *prefix, bool b) {
-  Text("%s: %s", prefix, (b ? "true" : "false"));
-}
-
-void Gui::Value(const char *prefix, int v) { Text("%s: %d", prefix, v); }
-
-void Gui::Value(const char *prefix, unsigned int v) {
-  Text("%s: %d", prefix, v);
-}
-
-void Gui::Value(const char *prefix, float v, const char *float_format) {
+inline void Gui::Value(const char *prefix, float v, const char *float_format) {
   if (float_format) {
     char fmt[64];
     FormatString(fmt, GUI_ARRAYSIZE(fmt), "%%s: %s", float_format);
@@ -44778,7 +45018,7 @@ void Gui::Value(const char *prefix, float v, const char *float_format) {
 //-------------------------------------------------------------------------
 
 // Helpers for internal use
-void MenuColumns::Update(float spacing, bool window_reappearing) {
+inline void MenuColumns::Update(float spacing, bool window_reappearing) {
   if (window_reappearing)
     memset(Widths, 0, sizeof(Widths));
   Spacing = (U16)spacing;
@@ -44788,40 +45028,6 @@ void MenuColumns::Update(float spacing, bool window_reappearing) {
   NextTotalWidth = 0;
 }
 
-void MenuColumns::CalcNextTotalWidth(bool update_offsets) {
-  U16 offset = 0;
-  bool want_spacing = false;
-  for (int i = 0; i < GUI_ARRAYSIZE(Widths); i++) {
-    U16 width = Widths[i];
-    if (want_spacing && width > 0)
-      offset += Spacing;
-    want_spacing |= (width > 0);
-    if (update_offsets) {
-      if (i == 1) {
-        OffsetLabel = offset;
-      }
-      if (i == 2) {
-        OffsetShortcut = offset;
-      }
-      if (i == 3) {
-        OffsetMark = offset;
-      }
-    }
-    offset += width;
-  }
-  NextTotalWidth = offset;
-}
-
-float MenuColumns::DeclColumns(float w_icon, float w_label, float w_shortcut,
-                               float w_mark) {
-  Widths[0] = Max(Widths[0], (U16)w_icon);
-  Widths[1] = Max(Widths[1], (U16)w_label);
-  Widths[2] = Max(Widths[2], (U16)w_shortcut);
-  Widths[3] = Max(Widths[3], (U16)w_mark);
-  CalcNextTotalWidth(false);
-  return (float)Max(TotalWidth, NextTotalWidth);
-}
-
 // FIXME: Provided a rectangle perhaps e.g. a BeginMenuBarEx() could be used
 // anywhere.. Currently the main responsibility of this function being to setup
 // clip-rect + horizontal layout + menu navigation layer. Ideally we also want
@@ -44829,7 +45035,7 @@ float MenuColumns::DeclColumns(float w_icon, float w_label, float w_shortcut,
 // rectangle, in which case WindowFlags_MenuBar will become unnecessary.
 // Then later the same system could be used for multiple menu-bars, scrollbars,
 // side-bars.
-bool Gui::BeginMenuBar() {
+inline bool Gui::BeginMenuBar() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -44870,7 +45076,7 @@ bool Gui::BeginMenuBar() {
   return true;
 }
 
-void Gui::EndMenuBar() {
+inline void Gui::EndMenuBar() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return;
@@ -44941,8 +45147,9 @@ void Gui::EndMenuBar() {
 // FIXME: Somehow overlapping with docking tech.
 // FIXME: The "rect-cut" aspect of this could be formalized into a lower-level
 // helper (rect-cut: https://halt.software/dead-simple-layouts)
-bool Gui::BeginViewportSideBar(const char *name, Viewport *viewport_p, Dir dir,
-                               float axis_size, WindowFlags window_flags) {
+inline bool Gui::BeginViewportSideBar(const char *name, Viewport *viewport_p,
+                                      Dir dir, float axis_size,
+                                      WindowFlags window_flags) {
   GUI_ASSERT(dir != Dir_None);
 
   Window *bar_window = FindWindowByName(name);
@@ -44978,7 +45185,7 @@ bool Gui::BeginViewportSideBar(const char *name, Viewport *viewport_p, Dir dir,
   return is_open;
 }
 
-bool Gui::BeginMainMenuBar() {
+inline bool Gui::BeginMainMenuBar() {
   Context &g = *GGui;
   ViewportP *viewport = (ViewportP *)(void *)GetMainViewport();
 
@@ -45005,7 +45212,7 @@ bool Gui::BeginMainMenuBar() {
   return is_open;
 }
 
-void Gui::EndMainMenuBar() {
+inline void Gui::EndMainMenuBar() {
   EndMenuBar();
 
   // When the user has left the menu layer (typically: closed menus through
@@ -45055,7 +45262,8 @@ static bool IsRootOfOpenMenuSet() {
          Gui::IsWindowChildOf(upper_popup->Window, window, true);
 }
 
-bool Gui::BeginMenuEx(const char *label, const char *icon, bool enabled) {
+inline bool Gui::BeginMenuEx(const char *label, const char *icon,
+                             bool enabled) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -45325,11 +45533,11 @@ bool Gui::BeginMenuEx(const char *label, const char *icon, bool enabled) {
   return menu_is_open;
 }
 
-bool Gui::BeginMenu(const char *label, bool enabled) {
+inline bool Gui::BeginMenu(const char *label, bool enabled) {
   return BeginMenuEx(label, NULL, enabled);
 }
 
-void Gui::EndMenu() {
+inline void Gui::EndMenu() {
   // Nav: When a left move request our menu failed, close ourselves.
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
@@ -45348,8 +45556,8 @@ void Gui::EndMenu() {
   EndPopup();
 }
 
-bool Gui::MenuItemEx(const char *label, const char *icon, const char *shortcut,
-                     bool selected, bool enabled) {
+inline bool Gui::MenuItemEx(const char *label, const char *icon,
+                            const char *shortcut, bool selected, bool enabled) {
   Window *window = GetCurrentWindow();
   if (window->SkipItems)
     return false;
@@ -45447,13 +45655,13 @@ bool Gui::MenuItemEx(const char *label, const char *icon, const char *shortcut,
   return pressed;
 }
 
-bool Gui::MenuItem(const char *label, const char *shortcut, bool selected,
-                   bool enabled) {
+inline bool Gui::MenuItem(const char *label, const char *shortcut,
+                          bool selected, bool enabled) {
   return MenuItemEx(label, NULL, shortcut, selected, enabled);
 }
 
-bool Gui::MenuItem(const char *label, const char *shortcut, bool *p_selected,
-                   bool enabled) {
+inline bool Gui::MenuItem(const char *label, const char *shortcut,
+                          bool *p_selected, bool enabled) {
   if (MenuItemEx(label, NULL, shortcut, p_selected ? *p_selected : false,
                  enabled)) {
     if (p_selected)
@@ -45508,7 +45716,7 @@ static TabItem *TabBarScrollingButtons(TabBar *tab_bar);
 static TabItem *TabBarTabListPopupButton(TabBar *tab_bar);
 } // namespace Gui
 
-TabBar::TabBar() {
+inline TabBar::TabBar() {
   memset(this, 0, sizeof(*this));
   CurrFrameVisible = PrevFrameVisible = -1;
   LastTabItemIdx = -1;
@@ -45550,7 +45758,7 @@ static PtrOrIndex GetTabBarRefFromTabBar(TabBar *tab_bar) {
   return PtrOrIndex(tab_bar);
 }
 
-bool Gui::BeginTabBar(const char *str_id, TabBarFlags flags) {
+inline bool Gui::BeginTabBar(const char *str_id, TabBarFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -45569,8 +45777,8 @@ bool Gui::BeginTabBar(const char *str_id, TabBarFlags flags) {
   return BeginTabBarEx(tab_bar, tab_bar_bb, flags | TabBarFlags_IsFocused);
 }
 
-bool Gui::BeginTabBarEx(TabBar *tab_bar, const Rect &tab_bar_bb,
-                        TabBarFlags flags) {
+inline bool Gui::BeginTabBarEx(TabBar *tab_bar, const Rect &tab_bar_bb,
+                               TabBarFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -45639,7 +45847,7 @@ bool Gui::BeginTabBarEx(TabBar *tab_bar, const Rect &tab_bar_bb,
   return true;
 }
 
-void Gui::EndTabBar() {
+inline void Gui::EndTabBar() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -46021,29 +46229,9 @@ static float Gui::TabBarCalcMaxTabWidth() {
   return g.FontSize * 20.0f;
 }
 
-TabItem *Gui::TabBarFindTabByID(TabBar *tab_bar, ID tab_id) {
-  if (tab_id != 0)
-    for (int n = 0; n < tab_bar->Tabs.Size; n++)
-      if (tab_bar->Tabs[n].ID == tab_id)
-        return &tab_bar->Tabs[n];
-  return NULL;
-}
-
 // Order = visible order, not submission order! (which is tab->BeginOrder)
-TabItem *Gui::TabBarFindTabByOrder(TabBar *tab_bar, int order) {
-  if (order < 0 || order >= tab_bar->Tabs.Size)
-    return NULL;
-  return &tab_bar->Tabs[order];
-}
 
-TabItem *Gui::TabBarGetCurrentTab(TabBar *tab_bar) {
-  if (tab_bar->LastTabItemIdx <= 0 ||
-      tab_bar->LastTabItemIdx >= tab_bar->Tabs.Size)
-    return NULL;
-  return &tab_bar->Tabs[tab_bar->LastTabItemIdx];
-}
-
-const char *Gui::TabBarGetTabName(TabBar *tab_bar, TabItem *tab) {
+inline const char *Gui::TabBarGetTabName(TabBar *tab_bar, TabItem *tab) {
   if (tab->NameOffset == -1)
     return "N/A";
   GUI_ASSERT(tab->NameOffset < tab_bar->TabsNames.Buf.Size);
@@ -46052,22 +46240,9 @@ const char *Gui::TabBarGetTabName(TabBar *tab_bar, TabItem *tab) {
 
 // The *TabId fields are already set by the docking system _before_ the actual
 // TabItem was created, so we clear them regardless.
-void Gui::TabBarRemoveTab(TabBar *tab_bar, ID tab_id) {
-  if (TabItem *tab = TabBarFindTabByID(tab_bar, tab_id))
-    tab_bar->Tabs.erase(tab);
-  if (tab_bar->VisibleTabId == tab_id) {
-    tab_bar->VisibleTabId = 0;
-  }
-  if (tab_bar->SelectedTabId == tab_id) {
-    tab_bar->SelectedTabId = 0;
-  }
-  if (tab_bar->NextSelectedTabId == tab_id) {
-    tab_bar->NextSelectedTabId = 0;
-  }
-}
 
 // Called on manual closure attempt
-void Gui::TabBarCloseTab(TabBar *tab_bar, TabItem *tab) {
+inline void Gui::TabBarCloseTab(TabBar *tab_bar, TabItem *tab) {
   if (tab->Flags & TabItemFlags_Button)
     return; // A button appended with TabItemButton().
 
@@ -46138,19 +46313,16 @@ static void Gui::TabBarScrollToTab(TabBar *tab_bar, ID tab_id,
   }
 }
 
-void Gui::TabBarQueueFocus(TabBar *tab_bar, TabItem *tab) {
-  tab_bar->NextSelectedTabId = tab->ID;
-}
-
-void Gui::TabBarQueueReorder(TabBar *tab_bar, TabItem *tab, int offset) {
+inline void Gui::TabBarQueueReorder(TabBar *tab_bar, TabItem *tab, int offset) {
   GUI_ASSERT(offset != 0);
   GUI_ASSERT(tab_bar->ReorderRequestTabId == 0);
   tab_bar->ReorderRequestTabId = tab->ID;
   tab_bar->ReorderRequestOffset = (S16)offset;
 }
 
-void Gui::TabBarQueueReorderFromMousePos(TabBar *tab_bar, TabItem *src_tab,
-                                         Vec2 mouse_pos) {
+inline void Gui::TabBarQueueReorderFromMousePos(TabBar *tab_bar,
+                                                TabItem *src_tab,
+                                                Vec2 mouse_pos) {
   Context &g = *GGui;
   GUI_ASSERT(tab_bar->ReorderRequestTabId == 0);
   if ((tab_bar->Flags & TabBarFlags_Reorderable) == 0)
@@ -46190,7 +46362,7 @@ void Gui::TabBarQueueReorderFromMousePos(TabBar *tab_bar, TabItem *src_tab,
     TabBarQueueReorder(tab_bar, src_tab, dst_idx - src_idx);
 }
 
-bool Gui::TabBarProcessReorder(TabBar *tab_bar) {
+inline bool Gui::TabBarProcessReorder(TabBar *tab_bar) {
   TabItem *tab1 = TabBarFindTabByID(tab_bar, tab_bar->ReorderRequestTabId);
   if (tab1 == NULL || (tab1->Flags & TabItemFlags_NoReorder))
     return false;
@@ -46350,7 +46522,8 @@ static TabItem *Gui::TabBarTabListPopupButton(TabBar *tab_bar) {
 // - TabItemLabelAndCloseButton() [Internal]
 //-------------------------------------------------------------------------
 
-bool Gui::BeginTabItem(const char *label, bool *p_open, TabItemFlags flags) {
+inline bool Gui::BeginTabItem(const char *label, bool *p_open,
+                              TabItemFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -46376,7 +46549,7 @@ bool Gui::BeginTabItem(const char *label, bool *p_open, TabItemFlags flags) {
   return ret;
 }
 
-void Gui::EndTabItem() {
+inline void Gui::EndTabItem() {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -46395,7 +46568,7 @@ void Gui::EndTabItem() {
     PopID();
 }
 
-bool Gui::TabItemButton(const char *label, TabItemFlags flags) {
+inline bool Gui::TabItemButton(const char *label, TabItemFlags flags) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -46412,8 +46585,8 @@ bool Gui::TabItemButton(const char *label, TabItemFlags flags) {
                    flags | TabItemFlags_Button | TabItemFlags_NoReorder, NULL);
 }
 
-bool Gui::TabItemEx(TabBar *tab_bar, const char *label, bool *p_open,
-                    TabItemFlags flags, Window *docked_window) {
+inline bool Gui::TabItemEx(TabBar *tab_bar, const char *label, bool *p_open,
+                           TabItemFlags flags, Window *docked_window) {
   // Layout whole tab bar if not already done
   Context &g = *GGui;
   if (tab_bar->WantLayout) {
@@ -46662,7 +46835,7 @@ bool Gui::TabItemEx(TabBar *tab_bar, const char *label, bool *p_open,
 // glitches when a tab has been unexpectedly removed. To use it to need to call
 // the function SetTabItemClosed() between BeginTabBar() and EndTabBar(). Tabs
 // closed by the close button will automatically be flagged to avoid this issue.
-void Gui::SetTabItemClosed(const char *label) {
+inline void Gui::SetTabItemClosed(const char *label) {
   Context &g = *GGui;
   bool is_within_manual_tab_bar =
       g.CurrentTabBar && !(g.CurrentTabBar->Flags & TabBarFlags_DockNode);
@@ -46674,8 +46847,8 @@ void Gui::SetTabItemClosed(const char *label) {
   }
 }
 
-Vec2 Gui::TabItemCalcSize(const char *label,
-                          bool has_close_button_or_unsaved_marker) {
+inline Vec2 Gui::TabItemCalcSize(const char *label,
+                                 bool has_close_button_or_unsaved_marker) {
   Context &g = *GGui;
   Vec2 label_size = CalcTextSize(label, NULL, true);
   Vec2 size = Vec2(label_size.x + g.Style.FramePadding.x,
@@ -46690,14 +46863,14 @@ Vec2 Gui::TabItemCalcSize(const char *label,
   return Vec2(Min(size.x, TabBarCalcMaxTabWidth()), size.y);
 }
 
-Vec2 Gui::TabItemCalcSize(Window *) {
+inline Vec2 Gui::TabItemCalcSize(Window *) {
   GUI_ASSERT(
       0); // This function exists to facilitate merge with 'docking' branch.
   return Vec2(0.0f, 0.0f);
 }
 
-void Gui::TabItemBackground(DrawList *draw_list, const Rect &bb,
-                            TabItemFlags flags, U32 col) {
+inline void Gui::TabItemBackground(DrawList *draw_list, const Rect &bb,
+                                   TabItemFlags flags, U32 col) {
   // While rendering tabs, we trim 1 pixel off the top of our bounding box so
   // they can fit within a regular frame height while looking "detached" from
   // it.
@@ -46733,7 +46906,7 @@ void Gui::TabItemBackground(DrawList *draw_list, const Rect &bb,
 // Render text label (with custom clipping) + Unsaved Document marker + Close
 // Button logic We tend to lock style.FramePadding for a given tab-bar, hence
 // the 'frame_padding' parameter.
-void Gui::TabItemLabelAndCloseButton(
+inline void Gui::TabItemLabelAndCloseButton(
     DrawList *draw_list, const Rect &bb, TabItemFlags flags, Vec2 frame_padding,
     const char *label, ID tab_id, ID close_button_id, bool is_contents_visible,
     bool *out_just_closed, bool *out_text_clipped) {
@@ -47118,7 +47291,6 @@ Index of this file:
 #define GUI_DEFINE_MATH_OPERATORS
 #endif
 
-#include "gui.hpp"
 #ifndef GUI_DISABLE
 
 // System includes
@@ -47277,22 +47449,18 @@ inline TableFlags TableFixFlags(TableFlags flags, Window *outer_window) {
   return flags;
 }
 
-Table *Gui::TableFindByID(ID id) {
-  Context &g = *GGui;
-  return g.Tables.GetByKey(id);
-}
-
 // Read about "TABLE SIZING" at the top of this file.
-bool Gui::BeginTable(const char *str_id, int columns_count, TableFlags flags,
-                     const Vec2 &outer_size, float inner_width) {
+inline bool Gui::BeginTable(const char *str_id, int columns_count,
+                            TableFlags flags, const Vec2 &outer_size,
+                            float inner_width) {
   ID id = GetID(str_id);
   return BeginTableEx(str_id, id, columns_count, flags, outer_size,
                       inner_width);
 }
 
-bool Gui::BeginTableEx(const char *name, ID id, int columns_count,
-                       TableFlags flags, const Vec2 &outer_size,
-                       float inner_width) {
+inline bool Gui::BeginTableEx(const char *name, ID id, int columns_count,
+                              TableFlags flags, const Vec2 &outer_size,
+                              float inner_width) {
   Context &g = *GGui;
   Window *outer_window = GetCurrentWindow();
   if (outer_window->SkipItems) // Consistent with other tables + beneficial side
@@ -47664,7 +47832,7 @@ bool Gui::BeginTableEx(const char *name, ID id, int columns_count,
 // channels) Where active_channels_count is variable but often == columns_count
 // or == columns_count + 1, see TableSetupDrawChannels() for details. Unused
 // channels don't perform their +2 allocations.
-void Gui::TableBeginInitMemory(Table *table, int columns_count) {
+inline void Gui::TableBeginInitMemory(Table *table, int columns_count) {
   // Allocate single buffer for our arrays
   const int columns_bit_array_size =
       (int)BitArrayGetStorageSizeInBytes(columns_count);
@@ -47686,7 +47854,7 @@ void Gui::TableBeginInitMemory(Table *table, int columns_count) {
 }
 
 // Apply queued resizing/reordering/hiding requests
-void Gui::TableBeginApplyRequests(Table *table) {
+inline void Gui::TableBeginApplyRequests(Table *table) {
   // Handle resizing request
   // (We process this in the TableBegin() of the first instance of each table)
   // FIXME-TABLE: Contains columns if our work area doesn't allow for scrolling?
@@ -47849,7 +48017,7 @@ static void TableSetupColumnFlags(Table *table, TableColumn *column,
 // first frame for _WidthAuto columns. Increase feedback side-effect with
 // widgets relying on WorkRect.Max.x... Maybe provide a default distribution for
 // _WidthAuto columns?
-void Gui::TableUpdateLayout(Table *table) {
+inline void Gui::TableUpdateLayout(Table *table) {
   Context &g = *GGui;
   GUI_ASSERT(table->IsLayoutLocked == false);
 
@@ -48445,7 +48613,7 @@ void Gui::TableUpdateLayout(Table *table) {
 // in EndTable()
 // - Set table->HoveredColumnBorder with a short delay/timer to reduce visual
 // feedback noise.
-void Gui::TableUpdateBorders(Table *table) {
+inline void Gui::TableUpdateBorders(Table *table) {
   Context &g = *GGui;
   GUI_ASSERT(table->Flags & TableFlags_Resizable);
 
@@ -48521,7 +48689,7 @@ void Gui::TableUpdateBorders(Table *table) {
   }
 }
 
-void Gui::EndTable() {
+inline void Gui::EndTable() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL &&
@@ -48795,8 +48963,8 @@ void Gui::EndTable() {
 
 // See "COLUMNS SIZING POLICIES" comments at the top of this file
 // If (init_width_or_weight <= 0.0f) it is ignored
-void Gui::TableSetupColumn(const char *label, TableColumnFlags flags,
-                           float init_width_or_weight, ID user_id) {
+inline void Gui::TableSetupColumn(const char *label, TableColumnFlags flags,
+                                  float init_width_or_weight, ID user_id) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL &&
@@ -48881,7 +49049,7 @@ void Gui::TableSetupColumn(const char *label, TableColumnFlags flags,
 }
 
 // [Public]
-void Gui::TableSetupScrollFreeze(int columns, int rows) {
+inline void Gui::TableSetupScrollFreeze(int columns, int rows) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL &&
@@ -48936,13 +49104,13 @@ void Gui::TableSetupScrollFreeze(int columns, int rows) {
 // - TableSetBgColor()
 //-----------------------------------------------------------------------------
 
-int Gui::TableGetColumnCount() {
+inline int Gui::TableGetColumnCount() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   return table ? table->ColumnsCount : 0;
 }
 
-const char *Gui::TableGetColumnName(int column_n) {
+inline const char *Gui::TableGetColumnName(int column_n) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -48950,15 +49118,6 @@ const char *Gui::TableGetColumnName(int column_n) {
   if (column_n < 0)
     column_n = table->CurrentColumn;
   return TableGetColumnName(table, column_n);
-}
-
-const char *Gui::TableGetColumnName(const Table *table, int column_n) {
-  if (table->IsLayoutLocked == false && column_n >= table->DeclColumnsCount)
-    return ""; // NameOffset is invalid at this point
-  const TableColumn *column = &table->Columns[column_n];
-  if (column->NameOffset == -1)
-    return "";
-  return &table->ColumnsNames.Buf[column->NameOffset];
 }
 
 // Change user accessible enabled/disabled state of a column (often perceived as
@@ -48973,7 +49132,7 @@ const char *Gui::TableGetColumnName(const Table *table, int column_n) {
 // TableColumnFlags_IsEnabled) != 0.
 // - Alternative: the TableColumnFlags_Disabled is an overriding/master
 // disable flag which will also hide the column from context menu.
-void Gui::TableSetColumnEnabled(int column_n, bool enabled) {
+inline void Gui::TableSetColumnEnabled(int column_n, bool enabled) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL);
@@ -48989,7 +49148,7 @@ void Gui::TableSetColumnEnabled(int column_n, bool enabled) {
 
 // We allow querying for an extra column in order to poll the IsHovered state of
 // the right-most section
-TableColumnFlags Gui::TableGetColumnFlags(int column_n) {
+inline TableColumnFlags Gui::TableGetColumnFlags(int column_n) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49014,21 +49173,10 @@ TableColumnFlags Gui::TableGetColumnFlags(int column_n) {
 //   outer border.
 //   FIXME: But the rendering code in TableEndRow() nullifies that with clamping
 //   required for scrolling.
-Rect Gui::TableGetCellBgRect(const Table *table, int column_n) {
-  const TableColumn *column = &table->Columns[column_n];
-  float x1 = column->MinX;
-  float x2 = column->MaxX;
-  // if (column->PrevEnabledColumn == -1)
-  //     x1 -= table->OuterPaddingX;
-  // if (column->NextEnabledColumn == -1)
-  //     x2 += table->OuterPaddingX;
-  x1 = Max(x1, table->WorkRect.Min.x);
-  x2 = Min(x2, table->WorkRect.Max.x);
-  return Rect(x1, table->RowPosY1, x2, table->RowPosY2);
-}
 
 // Return the resizing ID for the right-side of the given column.
-ID Gui::TableGetColumnResizeID(Table *table, int column_n, int instance_no) {
+inline ID Gui::TableGetColumnResizeID(Table *table, int column_n,
+                                      int instance_no) {
   GUI_ASSERT(column_n >= 0 && column_n < table->ColumnsCount);
   ID instance_id = TableGetInstanceID(table, instance_no);
   return instance_id + 1 + column_n; // FIXME: #6140: still not ideal
@@ -49036,19 +49184,12 @@ ID Gui::TableGetColumnResizeID(Table *table, int column_n, int instance_no) {
 
 // Return -1 when table is not hovered. return columns_count if hovering the
 // unused space at the right of the right-most visible column.
-int Gui::TableGetHoveredColumn() {
-  Context &g = *GGui;
-  Table *table = g.CurrentTable;
-  if (!table)
-    return -1;
-  return (int)table->HoveredColumnBody;
-}
 
 // Return -1 when table is not hovered. Return maxrow+1 if in table but below
 // last submitted row. *IMPORTANT* Unlike TableGetHoveredColumn(), this has a
 // one frame latency in updating the value. This difference with is the reason
 // why this is not public yet.
-int Gui::TableGetHoveredRow() {
+inline int Gui::TableGetHoveredRow() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49058,7 +49199,8 @@ int Gui::TableGetHoveredRow() {
   return (int)table_instance->HoveredRowLast;
 }
 
-void Gui::TableSetBgColor(TableBgTarget target, U32 color, int column_n) {
+inline void Gui::TableSetBgColor(TableBgTarget target, U32 color,
+                                 int column_n) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(target != TableBgTarget_None);
@@ -49109,7 +49251,7 @@ void Gui::TableSetBgColor(TableBgTarget target, U32 color, int column_n) {
 
 // [Public] Note: for row coloring we use ->RowBgColorCounter which is the same
 // value without counting header rows
-int Gui::TableGetRowIndex() {
+inline int Gui::TableGetRowIndex() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49118,7 +49260,7 @@ int Gui::TableGetRowIndex() {
 }
 
 // [Public] Starts into the first cell of a new row
-void Gui::TableNextRow(TableRowFlags row_flags, float row_min_height) {
+inline void Gui::TableNextRow(TableRowFlags row_flags, float row_min_height) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
 
@@ -49144,7 +49286,7 @@ void Gui::TableNextRow(TableRowFlags row_flags, float row_min_height) {
 }
 
 // [Internal] Only called by TableNextRow()
-void Gui::TableBeginRow(Table *table) {
+inline void Gui::TableBeginRow(Table *table) {
   Window *window = table->InnerWindow;
   GUI_ASSERT(!table->IsInsideRow);
 
@@ -49187,7 +49329,7 @@ void Gui::TableBeginRow(Table *table) {
 }
 
 // [Internal] Called by TableNextRow()
-void Gui::TableEndRow(Table *table) {
+inline void Gui::TableEndRow(Table *table) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   GUI_ASSERT(window == table->InnerWindow);
@@ -49366,7 +49508,7 @@ void Gui::TableEndRow(Table *table) {
 // - TableEndCell() [Internal]
 //-------------------------------------------------------------------------
 
-int Gui::TableGetColumnIndex() {
+inline int Gui::TableGetColumnIndex() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49375,7 +49517,7 @@ int Gui::TableGetColumnIndex() {
 }
 
 // [Public] Append into a specific column
-bool Gui::TableSetColumnIndex(int column_n) {
+inline bool Gui::TableSetColumnIndex(int column_n) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49396,7 +49538,7 @@ bool Gui::TableSetColumnIndex(int column_n) {
 
 // [Public] Append into the next column, wrap and create a new row when already
 // on last column
-bool Gui::TableNextColumn() {
+inline bool Gui::TableNextColumn() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (!table)
@@ -49422,7 +49564,7 @@ bool Gui::TableNextColumn() {
 // overhead.
 // FIXME-TABLE FIXME-OPT: Could probably shortcut some things for non-active or
 // clipped columns.
-void Gui::TableBeginCell(Table *table, int column_n) {
+inline void Gui::TableBeginCell(Table *table, int column_n) {
   Context &g = *GGui;
   TableColumn *column = &table->Columns[column_n];
   Window *window = table->InnerWindow;
@@ -49480,7 +49622,7 @@ void Gui::TableBeginCell(Table *table, int column_n) {
 }
 
 // [Internal] Called by TableNextRow()/TableSetColumnIndex()/TableNextColumn()
-void Gui::TableEndCell(Table *table) {
+inline void Gui::TableEndCell(Table *table) {
   TableColumn *column = &table->Columns[table->CurrentColumn];
   Window *window = table->InnerWindow;
 
@@ -49523,69 +49665,12 @@ void Gui::TableEndCell(Table *table) {
 
 // Maximum column content width given current layout. Use column->MinX so this
 // value on a per-column basis.
-float Gui::TableGetMaxColumnWidth(const Table *table, int column_n) {
-  const TableColumn *column = &table->Columns[column_n];
-  float max_width = FLT_MAX;
-  const float min_column_distance = table->MinColumnWidth +
-                                    table->CellPaddingX * 2.0f +
-                                    table->CellSpacingX1 + table->CellSpacingX2;
-  if (table->Flags & TableFlags_ScrollX) {
-    // Frozen columns can't reach beyond visible width else scrolling will
-    // naturally break. (we use DisplayOrder as within a set of multiple frozen
-    // column reordering is possible)
-    if (column->DisplayOrder < table->FreezeColumnsRequest) {
-      max_width = (table->InnerClipRect.Max.x -
-                   (table->FreezeColumnsRequest - column->DisplayOrder) *
-                       min_column_distance) -
-                  column->MinX;
-      max_width = max_width - table->OuterPaddingX - table->CellPaddingX -
-                  table->CellSpacingX2;
-    }
-  } else if ((table->Flags & TableFlags_NoKeepColumnsVisible) == 0) {
-    // If horizontal scrolling if disabled, we apply a final lossless shrinking
-    // of columns in order to make sure they are all visible. Because of this we
-    // also know that all of the columns will always fit in table->WorkRect and
-    // therefore in table->InnerRect (because ScrollX is off)
-    // FIXME-TABLE: This is solved incorrectly but also quite a difficult
-    // problem to fix as we also want ClipRect width to match. See
-    // "table_width_distrib" and "table_width_keep_visible" tests
-    max_width =
-        table->WorkRect.Max.x -
-        (table->ColumnsEnabledCount - column->IndexWithinEnabledSet - 1) *
-            min_column_distance -
-        column->MinX;
-    // max_width -= table->CellSpacingX1;
-    max_width -= table->CellSpacingX2;
-    max_width -= table->CellPaddingX * 2.0f;
-    max_width -= table->OuterPaddingX;
-  }
-  return max_width;
-}
 
 // Note this is meant to be stored in column->WidthAuto, please generally use
 // the WidthAuto field
-float Gui::TableGetColumnWidthAuto(Table *table, TableColumn *column) {
-  const float content_width_body =
-      Max(column->ContentMaxXFrozen, column->ContentMaxXUnfrozen) -
-      column->WorkMinX;
-  const float content_width_headers =
-      column->ContentMaxXHeadersIdeal - column->WorkMinX;
-  float width_auto = content_width_body;
-  if (!(column->Flags & TableColumnFlags_NoHeaderWidth))
-    width_auto = Max(width_auto, content_width_headers);
-
-  // Non-resizable fixed columns preserve their requested width
-  if ((column->Flags & TableColumnFlags_WidthFixed) &&
-      column->InitStretchWeightOrWidth > 0.0f)
-    if (!(table->Flags & TableFlags_Resizable) ||
-        (column->Flags & TableColumnFlags_NoResize))
-      width_auto = column->InitStretchWeightOrWidth;
-
-  return Max(width_auto, table->MinColumnWidth);
-}
 
 // 'width' = inner column width, without padding
-void Gui::TableSetColumnWidth(int column_n, float width) {
+inline void Gui::TableSetColumnWidth(int column_n, float width) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL && table->IsLayoutLocked == false);
@@ -49700,29 +49785,8 @@ void Gui::TableSetColumnWidth(int column_n, float width) {
 // Disable clipping then auto-fit, will take 2 frames
 // (we don't take a shortcut for unclipped columns to reduce inconsistencies
 // when e.g. resizing multiple columns)
-void Gui::TableSetColumnWidthAutoSingle(Table *table, int column_n) {
-  // Single auto width uses auto-fit
-  TableColumn *column = &table->Columns[column_n];
-  if (!column->IsEnabled)
-    return;
-  column->CannotSkipItemsQueue = (1 << 0);
-  table->AutoFitSingleColumn = (TableColumnIdx)column_n;
-}
 
-void Gui::TableSetColumnWidthAutoAll(Table *table) {
-  for (int column_n = 0; column_n < table->ColumnsCount; column_n++) {
-    TableColumn *column = &table->Columns[column_n];
-    if (!column->IsEnabled &&
-        !(column->Flags &
-          TableColumnFlags_WidthStretch)) // Cannot reset weight of hidden
-                                          // stretch column
-      continue;
-    column->CannotSkipItemsQueue = (1 << 0);
-    column->AutoFitQueue = (1 << 1);
-  }
-}
-
-void Gui::TableUpdateColumnsWeightFromWidth(Table *table) {
+inline void Gui::TableUpdateColumnsWeightFromWidth(Table *table) {
   GUI_ASSERT(table->LeftMostStretchedColumn != -1 &&
              table->RightMostStretchedColumn != -1);
 
@@ -49765,29 +49829,6 @@ void Gui::TableUpdateColumnsWeightFromWidth(Table *table) {
 // background. Unlike our Bg0/1 channel which we uses for RowBg/CellBg/Borders
 // and where we guarantee all shapes to be CPU-clipped, the Bg2 channel being
 // widgets-facing will rely on regular ClipRect.
-void Gui::TablePushBackgroundChannel() {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Table *table = g.CurrentTable;
-
-  // Optimization: avoid SetCurrentChannel() + PushClipRect()
-  table->HostBackupInnerClipRect = window->ClipRect;
-  SetWindowClipRectBeforeSetChannel(window, table->Bg2ClipRectForDrawCmd);
-  table->DrawSplitter->SetCurrentChannel(window->DrawList,
-                                         table->Bg2DrawChannelCurrent);
-}
-
-void Gui::TablePopBackgroundChannel() {
-  Context &g = *GGui;
-  Window *window = g.CurrentWindow;
-  Table *table = g.CurrentTable;
-  TableColumn *column = &table->Columns[table->CurrentColumn];
-
-  // Optimization: avoid PopClipRect() + SetCurrentChannel()
-  SetWindowClipRectBeforeSetChannel(window, table->HostBackupInnerClipRect);
-  table->DrawSplitter->SetCurrentChannel(window->DrawList,
-                                         column->DrawChannelCurrent);
-}
 
 // Allocate draw channels. Called by TableUpdateLayout()
 // - We allocate them following storage order instead of display order so
@@ -49813,7 +49854,7 @@ void Gui::TablePopBackgroundChannel() {
 // - FreezeRows                   --> 2+D+N*2 (unless scrolling value is zero)
 // - FreezeRows || FreezeColunns  --> 3+D+N*2 (unless scrolling value is zero)
 // Where D is 1 if any column is clipped or hidden (dummy channel) otherwise 0.
-void Gui::TableSetupDrawChannels(Table *table) {
+inline void Gui::TableSetupDrawChannels(Table *table) {
   const int freeze_row_multiplier = (table->FreezeRowsCount > 0) ? 2 : 1;
   const int channels_for_row =
       (table->Flags & TableFlags_NoClip) ? 1 : table->ColumnsEnabledCount;
@@ -49907,7 +49948,7 @@ void Gui::TableSetupDrawChannels(Table *table) {
 // their own DrawCmd.
 //
 // This function is particularly tricky to understand.. take a breath.
-void Gui::TableMergeDrawChannels(Table *table) {
+inline void Gui::TableMergeDrawChannels(Table *table) {
   Context &g = *GGui;
   DrawListSplitter *splitter = table->DrawSplitter;
   const bool has_freeze_v = (table->FreezeRowsCount > 0);
@@ -50137,7 +50178,7 @@ static U32 TableGetColumnBorderCol(Table *table, int order_n, int column_n) {
 
 // FIXME-TABLE: This is a mess, need to redesign how we render borders (as some
 // are also done in TableEndRow)
-void Gui::TableDrawBorders(Table *table) {
+inline void Gui::TableDrawBorders(Table *table) {
   Window *inner_window = table->InnerWindow;
   if (!table->OuterWindow->ClipRect.Overlaps(table->OuterRect))
     return;
@@ -50275,7 +50316,7 @@ void Gui::TableDrawBorders(Table *table) {
 // Make sure to set 'SpecsDirty = false' after sorting, else you may wastefully
 // sort your data every frame! Lifetime: don't hold on this pointer over
 // multiple frames or past any subsequent call to BeginTable()!
-TableSortSpecs *Gui::TableGetSortSpecs() {
+inline TableSortSpecs *Gui::TableGetSortSpecs() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL);
@@ -50300,7 +50341,8 @@ TableGetColumnAvailSortDirection(TableColumn *column, int n) {
 
 // Fix sort direction if currently set on a value which is unavailable (e.g.
 // activating NoSortAscending/NoSortDescending)
-void Gui::TableFixColumnSortDirection(Table *table, TableColumn *column) {
+inline void Gui::TableFixColumnSortDirection(Table *table,
+                                             TableColumn *column) {
   if (column->SortOrder == -1 ||
       (column->SortDirectionsAvailMask & (1 << column->SortDirection)) != 0)
     return;
@@ -50315,7 +50357,7 @@ void Gui::TableFixColumnSortDirection(Table *table, TableColumn *column) {
 // the default and therefore a no-op.
 GUI_STATIC_ASSERT(SortDirection_None == 0 && SortDirection_Ascending == 1 &&
                   SortDirection_Descending == 2);
-SortDirection Gui::TableGetColumnNextSortDirection(TableColumn *column) {
+inline SortDirection Gui::TableGetColumnNextSortDirection(TableColumn *column) {
   GUI_ASSERT(column->SortDirectionsAvailCount > 0);
   if (column->SortOrder == -1)
     return TableGetColumnAvailSortDirection(column, 0);
@@ -50331,9 +50373,9 @@ SortDirection Gui::TableGetColumnNextSortDirection(TableColumn *column) {
 // TableSortSpecsSanitize(), and they may change/revert the value of
 // SortDirection. We could technically also do it here but it would be
 // unnecessary and duplicate code.
-void Gui::TableSetColumnSortDirection(int column_n,
-                                      SortDirection sort_direction,
-                                      bool append_to_sort_specs) {
+inline void Gui::TableSetColumnSortDirection(int column_n,
+                                             SortDirection sort_direction,
+                                             bool append_to_sort_specs) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
 
@@ -50367,7 +50409,7 @@ void Gui::TableSetColumnSortDirection(int column_n,
   table->IsSortSpecsDirty = true;
 }
 
-void Gui::TableSortSpecsSanitize(Table *table) {
+inline void Gui::TableSortSpecsSanitize(Table *table) {
   GUI_ASSERT(table->Flags & TableFlags_Sortable);
 
   // Clear SortOrder from hidden column and verify that there's no gap or
@@ -50436,7 +50478,7 @@ void Gui::TableSortSpecsSanitize(Table *table) {
   table->SortSpecsCount = (TableColumnIdx)sort_order_count;
 }
 
-void Gui::TableSortSpecsBuild(Table *table) {
+inline void Gui::TableSortSpecsBuild(Table *table) {
   bool dirty = table->IsSortSpecsDirty;
   if (dirty) {
     TableSortSpecsSanitize(table);
@@ -50478,7 +50520,7 @@ void Gui::TableSortSpecsBuild(Table *table) {
 // - TableAngledHeadersRowEx() [Internal]
 //-------------------------------------------------------------------------
 
-float Gui::TableGetHeaderRowHeight() {
+inline float Gui::TableGetHeaderRowHeight() {
   // Caring for a minor edge case:
   // Calculate row height, for the unlikely case that some labels may be taller
   // than others. If we didn't do that, uneven header height would highlight but
@@ -50497,7 +50539,7 @@ float Gui::TableGetHeaderRowHeight() {
   return row_height + g.Style.CellPadding.y * 2.0f;
 }
 
-float Gui::TableGetHeaderAngledMaxLabelWidth() {
+inline float Gui::TableGetHeaderAngledMaxLabelWidth() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   float width = 0.0f;
@@ -50520,7 +50562,7 @@ float Gui::TableGetHeaderAngledMaxLabelWidth() {
 // be a template to copy.
 // FIXME-TABLE: TableOpenContextMenu() and TableGetHeaderRowHeight() are not
 // public.
-void Gui::TableHeadersRow() {
+inline void Gui::TableHeadersRow() {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   GUI_ASSERT(table != NULL &&
@@ -50569,7 +50611,7 @@ void Gui::TableHeadersRow() {
 // We cpu-clip text here so that all columns headers can be merged into a same
 // draw call. Note that because of how we cpu-clip and display sorting
 // indicators, you _cannot_ use SameLine() after a TableHeader()
-void Gui::TableHeader(const char *label) {
+inline void Gui::TableHeader(const char *label) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -50747,12 +50789,12 @@ void Gui::TableHeader(const char *label) {
 // customize this with custom widgets.
 // FIXME: highlight without TableFlags_HighlightHoveredColumn
 // FIXME: No hit-testing/button on the angled header.
-void Gui::TableAngledHeadersRow() {
+inline void Gui::TableAngledHeadersRow() {
   Context &g = *GGui;
   TableAngledHeadersRowEx(g.Style.TableAngledHeadersAngle, 0.0f);
 }
 
-void Gui::TableAngledHeadersRowEx(float angle, float max_label_width) {
+inline void Gui::TableAngledHeadersRowEx(float angle, float max_label_width) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   Window *window = g.CurrentWindow;
@@ -50908,7 +50950,7 @@ void Gui::TableAngledHeadersRowEx(float angle, float max_label_width) {
 //-------------------------------------------------------------------------
 
 // Use -1 to open menu not specific to a given column.
-void Gui::TableOpenContextMenu(int column_n) {
+inline void Gui::TableOpenContextMenu(int column_n) {
   Context &g = *GGui;
   Table *table = g.CurrentTable;
   if (column_n == -1 &&
@@ -50929,19 +50971,6 @@ void Gui::TableOpenContextMenu(int column_n) {
   }
 }
 
-bool Gui::TableBeginContextMenuPopup(Table *table) {
-  if (!table->IsContextPopupOpen ||
-      table->InstanceCurrent != table->InstanceInteracted)
-    return false;
-  const ID context_menu_id = HashStr("##ContextMenu", 0, table->ID);
-  if (BeginPopupEx(context_menu_id, WindowFlags_AlwaysAutoResize |
-                                        WindowFlags_NoTitleBar |
-                                        WindowFlags_NoSavedSettings))
-    return true;
-  table->IsContextPopupOpen = false;
-  return false;
-}
-
 // Output context menu into current window (generally a popup)
 // FIXME-TABLE: Ideally this should be writable by the user. Full programmatic
 // access to that data? Sections to display are pulled from
@@ -50952,8 +50981,9 @@ bool Gui::TableBeginContextMenuPopup(Table *table) {
 // - TableFlags_Hideable    -> display columns visibility menu items
 // It means if you have a custom context menus you can call this section and
 // omit some sections, and add your own.
-void Gui::TableDrawDefaultContextMenu(Table *table,
-                                      TableFlags flags_for_section_to_display) {
+inline void
+Gui::TableDrawDefaultContextMenu(Table *table,
+                                 TableFlags flags_for_section_to_display) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   if (window->SkipItems)
@@ -51094,7 +51124,7 @@ static size_t TableSettingsCalcChunkSize(int columns_count) {
          (size_t)columns_count * sizeof(TableColumnSettings);
 }
 
-TableSettings *Gui::TableSettingsCreate(ID id, int columns_count) {
+inline TableSettings *Gui::TableSettingsCreate(ID id, int columns_count) {
   Context &g = *GGui;
   TableSettings *settings =
       g.SettingsTables.alloc_chunk(TableSettingsCalcChunkSize(columns_count));
@@ -51103,18 +51133,9 @@ TableSettings *Gui::TableSettingsCreate(ID id, int columns_count) {
 }
 
 // Find existing settings
-TableSettings *Gui::TableSettingsFindByID(ID id) {
-  // FIXME-OPT: Might want to store a lookup map for this?
-  Context &g = *GGui;
-  for (TableSettings *settings = g.SettingsTables.begin(); settings != NULL;
-       settings = g.SettingsTables.next_chunk(settings))
-    if (settings->ID == id)
-      return settings;
-  return NULL;
-}
 
 // Get settings for a given table, NULL if none
-TableSettings *Gui::TableGetBoundSettings(Table *table) {
+inline TableSettings *Gui::TableGetBoundSettings(Table *table) {
   if (table->SettingsOffset != -1) {
     Context &g = *GGui;
     TableSettings *settings =
@@ -51129,16 +51150,8 @@ TableSettings *Gui::TableGetBoundSettings(Table *table) {
 }
 
 // Restore initial state of table (with or without saved settings)
-void Gui::TableResetSettings(Table *table) {
-  table->IsInitializing = table->IsSettingsDirty = true;
-  table->IsResetAllRequest = false;
-  table->IsSettingsRequestLoad = false; // Don't reload from ini
-  table->SettingsLoadedFlags =
-      TableFlags_None; // Mark as nothing loaded so our initialized data
-                       // becomes authoritative
-}
 
-void Gui::TableSaveSettings(Table *table) {
+inline void Gui::TableSaveSettings(Table *table) {
   table->IsSettingsDirty = false;
   if (table->Flags & TableFlags_NoSavedSettings)
     return;
@@ -51199,7 +51212,7 @@ void Gui::TableSaveSettings(Table *table) {
   MarkIniSettingsDirty();
 }
 
-void Gui::TableLoadSettings(Table *table) {
+inline void Gui::TableLoadSettings(Table *table) {
   Context &g = *GGui;
   table->IsSettingsRequestLoad = false;
   if (table->Flags & TableFlags_NoSavedSettings)
@@ -51417,7 +51430,7 @@ static void TableSettingsHandler_WriteAll(Context *ctx,
   }
 }
 
-void Gui::TableSettingsAddSettingsHandler() {
+inline void Gui::TableSettingsAddSettingsHandler() {
   SettingsHandler ini_handler;
   ini_handler.TypeName = "Table";
   ini_handler.TypeHash = HashStr("Table");
@@ -51438,18 +51451,9 @@ void Gui::TableSettingsAddSettingsHandler() {
 //-------------------------------------------------------------------------
 
 // Remove Table (currently only used by TestEngine)
-void Gui::TableRemove(Table *table) {
-  // GUI_DEBUG_PRINT("TableRemove() id=0x%08X\n", table->ID);
-  Context &g = *GGui;
-  int table_idx = g.Tables.GetIndex(table);
-  // memset(table->RawData.Data, 0, table->RawData.size_in_bytes());
-  // memset(table, 0, sizeof(Table));
-  g.Tables.Remove(table->ID, table);
-  g.TablesLastTimeActive[table_idx] = -1.0f;
-}
 
 // Free up/compact internal Table buffers for when it gets unused
-void Gui::TableGcCompactTransientBuffers(Table *table) {
+inline void Gui::TableGcCompactTransientBuffers(Table *table) {
   // GUI_DEBUG_PRINT("TableGcCompactTransientBuffers() id=0x%08X\n",
   // table->ID);
   Context &g = *GGui;
@@ -51465,13 +51469,8 @@ void Gui::TableGcCompactTransientBuffers(Table *table) {
   g.TablesLastTimeActive[g.Tables.GetIndex(table)] = -1.0f;
 }
 
-void Gui::TableGcCompactTransientBuffers(TableTempData *temp_data) {
-  temp_data->DrawSplitter.ClearFreeMemory();
-  temp_data->LastTimeActive = -1.0f;
-}
-
 // Compact and remove unused settings data (currently only used by TestEngine)
-void Gui::TableGcCompactSettings() {
+inline void Gui::TableGcCompactSettings() {
   Context &g = *GGui;
   int required_memory = 0;
   for (TableSettings *settings = g.SettingsTables.begin(); settings != NULL;
@@ -51517,7 +51516,7 @@ static const char *DebugNodeTableGetSizingPolicyDesc(TableFlags sizing_policy) {
   return "N/A";
 }
 
-void Gui::DebugNodeTable(Table *table) {
+inline void Gui::DebugNodeTable(Table *table) {
   const bool is_active =
       (table->LastFrameActive >=
        GetFrameCount() - 2); // Note that fully clipped early out scrolling
@@ -51624,7 +51623,7 @@ void Gui::DebugNodeTable(Table *table) {
   TreePop();
 }
 
-void Gui::DebugNodeTableSettings(TableSettings *settings) {
+inline void Gui::DebugNodeTableSettings(TableSettings *settings) {
   if (!TreeNode((void *)(intptr_t)settings->ID, "Settings 0x%08X (%d columns)",
                 settings->ID, settings->ColumnsCount))
     return;
@@ -51686,32 +51685,15 @@ void Gui::DebugNodeTableSettings(TableSettings *) {}
 // many times with the underlying DrawCmd. Instead, we do a preemptive
 // overwrite of clipping rectangle _without_ altering the command-buffer and let
 // the subsequent single call to SetCurrentChannel() does it things once.
-void Gui::SetWindowClipRectBeforeSetChannel(Window *window,
-                                            const Rect &clip_rect) {
-  Vec4 clip_rect_vec4 = clip_rect.ToVec4();
-  window->ClipRect = clip_rect;
-  window->DrawList->_CmdHeader.ClipRect = clip_rect_vec4;
-  window->DrawList->_ClipRectStack
-      .Data[window->DrawList->_ClipRectStack.Size - 1] = clip_rect_vec4;
-}
 
-int Gui::GetColumnIndex() {
+inline int Gui::GetColumnIndex() {
   Window *window = GetCurrentWindowRead();
   return window->DC.CurrentColumns ? window->DC.CurrentColumns->Current : 0;
 }
 
-int Gui::GetColumnsCount() {
+inline int Gui::GetColumnsCount() {
   Window *window = GetCurrentWindowRead();
   return window->DC.CurrentColumns ? window->DC.CurrentColumns->Count : 1;
-}
-
-float Gui::GetColumnOffsetFromNorm(const OldColumns *columns,
-                                   float offset_norm) {
-  return offset_norm * (columns->OffMaxX - columns->OffMinX);
-}
-
-float Gui::GetColumnNormFromOffset(const OldColumns *columns, float offset) {
-  return offset / (columns->OffMaxX - columns->OffMinX);
 }
 
 static const float COLUMNS_HIT_RECT_HALF_WIDTH = 4.0f;
@@ -51737,7 +51719,7 @@ static float GetDraggedColumnOffset(OldColumns *columns, int column_index) {
   return x;
 }
 
-float Gui::GetColumnOffset(int column_index) {
+inline float Gui::GetColumnOffset(int column_index) {
   Window *window = GetCurrentWindowRead();
   OldColumns *columns = window->DC.CurrentColumns;
   if (columns == NULL)
@@ -51767,7 +51749,7 @@ static float GetColumnWidthEx(OldColumns *columns, int column_index,
   return Gui::GetColumnOffsetFromNorm(columns, offset_norm);
 }
 
-float Gui::GetColumnWidth(int column_index) {
+inline float Gui::GetColumnWidth(int column_index) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   OldColumns *columns = window->DC.CurrentColumns;
@@ -51781,7 +51763,7 @@ float Gui::GetColumnWidth(int column_index) {
                                      columns->Columns[column_index].OffsetNorm);
 }
 
-void Gui::SetColumnOffset(int column_index, float offset) {
+inline void Gui::SetColumnOffset(int column_index, float offset) {
   Context &g = *GGui;
   Window *window = g.CurrentWindow;
   OldColumns *columns = window->DC.CurrentColumns;
@@ -51810,7 +51792,7 @@ void Gui::SetColumnOffset(int column_index, float offset) {
                     offset + Max(g.Style.ColumnsMinSpacing, width));
 }
 
-void Gui::SetColumnWidth(int column_index, float width) {
+inline void Gui::SetColumnWidth(int column_index, float width) {
   Window *window = GetCurrentWindowRead();
   OldColumns *columns = window->DC.CurrentColumns;
   GUI_ASSERT(columns != NULL);
@@ -51820,70 +51802,11 @@ void Gui::SetColumnWidth(int column_index, float width) {
   SetColumnOffset(column_index + 1, GetColumnOffset(column_index) + width);
 }
 
-void Gui::PushColumnClipRect(int column_index) {
-  Window *window = GetCurrentWindowRead();
-  OldColumns *columns = window->DC.CurrentColumns;
-  if (column_index < 0)
-    column_index = columns->Current;
-
-  OldColumnData *column = &columns->Columns[column_index];
-  PushClipRect(column->ClipRect.Min, column->ClipRect.Max, false);
-}
-
 // Get into the columns background draw command (which is generally the same
 // draw command as before we called BeginColumns)
-void Gui::PushColumnsBackground() {
-  Window *window = GetCurrentWindowRead();
-  OldColumns *columns = window->DC.CurrentColumns;
-  if (columns->Count == 1)
-    return;
 
-  // Optimization: avoid SetCurrentChannel() + PushClipRect()
-  columns->HostBackupClipRect = window->ClipRect;
-  SetWindowClipRectBeforeSetChannel(window, columns->HostInitialClipRect);
-  columns->Splitter.SetCurrentChannel(window->DrawList, 0);
-}
-
-void Gui::PopColumnsBackground() {
-  Window *window = GetCurrentWindowRead();
-  OldColumns *columns = window->DC.CurrentColumns;
-  if (columns->Count == 1)
-    return;
-
-  // Optimization: avoid PopClipRect() + SetCurrentChannel()
-  SetWindowClipRectBeforeSetChannel(window, columns->HostBackupClipRect);
-  columns->Splitter.SetCurrentChannel(window->DrawList, columns->Current + 1);
-}
-
-OldColumns *Gui::FindOrCreateColumns(Window *window, ID id) {
-  // We have few columns per window so for now we don't need bother much with
-  // turning this into a faster lookup.
-  for (int n = 0; n < window->ColumnsStorage.Size; n++)
-    if (window->ColumnsStorage[n].ID == id)
-      return &window->ColumnsStorage[n];
-
-  window->ColumnsStorage.push_back(OldColumns());
-  OldColumns *columns = &window->ColumnsStorage.back();
-  columns->ID = id;
-  return columns;
-}
-
-ID Gui::GetColumnsID(const char *str_id, int columns_count) {
-  Window *window = GetCurrentWindow();
-
-  // Differentiate column ID with an arbitrary prefix for cases where users name
-  // their columns set the same as another widget. In addition, when an
-  // identifier isn't explicitly provided we include the number of columns in
-  // the hash to make it uniquer.
-  PushID(0x11223347 + (str_id ? 0 : columns_count));
-  ID id = window->GetID(str_id ? str_id : "columns");
-  PopID();
-
-  return id;
-}
-
-void Gui::BeginColumns(const char *str_id, int columns_count,
-                       OldColumnFlags flags) {
+inline void Gui::BeginColumns(const char *str_id, int columns_count,
+                              OldColumnFlags flags) {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
 
@@ -51967,7 +51890,7 @@ void Gui::BeginColumns(const char *str_id, int columns_count,
   window->WorkRect.Max.y = window->ContentRegionRect.Max.y;
 }
 
-void Gui::NextColumn() {
+inline void Gui::NextColumn() {
   Window *window = GetCurrentWindow();
   if (window->SkipItems || window->DC.CurrentColumns == NULL)
     return;
@@ -52023,7 +51946,7 @@ void Gui::NextColumn() {
   window->WorkRect.Max.x = window->Pos.x + offset_1 - column_padding;
 }
 
-void Gui::EndColumns() {
+inline void Gui::EndColumns() {
   Context &g = *GGui;
   Window *window = GetCurrentWindow();
   OldColumns *columns = window->DC.CurrentColumns;
@@ -52103,7 +52026,7 @@ void Gui::EndColumns() {
   NavUpdateCurrentWindowIsScrollPushableX();
 }
 
-void Gui::Columns(int columns_count, const char *id, bool border) {
+inline void Gui::Columns(int columns_count, const char *id, bool border) {
   Window *window = GetCurrentWindow();
   GUI_ASSERT(columns_count >= 1);
 
