@@ -1,6 +1,7 @@
 #ifndef RC_HPP
 #define RC_HPP
 #include "console.hpp"
+#include "gui.hpp"
 #include "timer.hpp"
 #include "util.hpp"
 #include <chrono>
@@ -28,6 +29,8 @@ private:
   Timer *TimerArr[8];
   std::string TimerText{};
   std::string ExecText{};
+  char Buffer[1024] = {0};
+  float Slider{0.0f};
   /* An array of run states in string form, sorted to form a doubly linked list
 with their matching int values, and used to retrieve text by index. */
   const std::string RunStates[17] = {
@@ -112,9 +115,13 @@ public:
     }
     std::thread thread{[this]() { this->ProcessOutput(); }};
     thread.detach();
+    CHECKVERSION();
+    Gui::CreateContext();
+    IO &io = Gui::GetIO();
     while ((GetState() < Exited) &&
            (TimerArr[0]->GetRemaining() > nanoseconds::zero())) {
       ProcessInput();
+      ProcessGui();
       ProcessCycles();
     }
     return 0;
@@ -398,6 +405,15 @@ private:
         std::this_thread::sleep_for(TimeMax - TimeEnd);
       }
     }
+    return 0;
+  }
+  auto ProcessGui() -> int {
+    Gui::Text("TShell");
+    if (Gui::Button("Start")) {
+      DoStart();
+    }
+    Gui::InputText("string", Buffer, ARRAYSIZE(Buffer));
+    Gui::SliderFloat("float", &Slider, 0.0f, 1.0f);
     return 0;
   }
   auto ProcessCycles() -> int {
